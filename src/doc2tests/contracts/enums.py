@@ -33,6 +33,7 @@ class PiiType(StrEnum):
 class SourceKind(StrEnum):
     image = "image"
     pdf = "pdf"
+    docx = "docx"
 
 
 class RenderStrategy(StrEnum):

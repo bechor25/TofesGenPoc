@@ -52,3 +52,36 @@ def test_parse_records_error_on_bad_json(tmp_path):
     out = ingest_parse(_state(tmp_path), _Bad({}))
     assert out["parse_result"].fields == []
     assert out["errors"][0].stage == "ingest_parse"
+
+
+def test_word_document_uses_text_extraction(tmp_path):
+    from docx import Document
+
+    from doc2tests.contracts.enums import SourceKind
+    from doc2tests.contracts.state import InputRef
+
+    path = tmp_path / "form.docx"
+    doc = Document()
+    doc.add_paragraph("מספר זהות: 123456782")
+    doc.save(str(path))
+
+    class _TextProvider:
+        name = "text-fake"
+
+        def __init__(self):
+            self.saw_text = None
+
+        def extract_vision(self, images, prompt, *, json_mode=False):
+            raise AssertionError("docx must use text extraction, not vision")
+
+        def complete_text(self, prompt, *, system=None, json_mode=False):
+            self.saw_text = prompt
+            return LLMResponse(text=json.dumps(
+                {"raw_text": "x", "fields": [
+                    {"label": "מספר זהות", "value": "123456782", "value_kind": "printed"}]}))
+
+    provider = _TextProvider()
+    state = GraphState(input_ref=InputRef(path=str(path), kind=SourceKind.docx))
+    out = ingest_parse(state, provider)
+    assert out["parse_result"].fields[0].value == "123456782"
+    assert "123456782" in provider.saw_text  # docx text was fed into the prompt

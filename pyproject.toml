@@ -18,6 +18,7 @@ dependencies = [
     "uvicorn[standard]>=0.51.0",
     "python-multipart>=0.0.32",
     "docxtpl>=0.20.2",
+    "pymupdf>=1.28.0",
 ]
 
 [project.optional-dependencies]
@@ -52,7 +53,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["docx.*", "docxtpl.*"]
+module = ["docx.*", "docxtpl.*", "fitz"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -61,3 +62,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 # only collect test functions; avoids grabbing domain enums like TestClass
 python_classes = []
+filterwarnings = [
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+]

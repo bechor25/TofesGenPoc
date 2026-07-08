@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from doc2tests.contracts.enums import SourceKind
 from doc2tests.contracts.state import GraphState, InputRef, RunConfig
 from doc2tests.contracts.template import CanonicalTemplate
+from doc2tests.ingest.loaders import detect_kind
 from doc2tests.orchestrator.config import build_vision_provider
 from doc2tests.orchestrator.graph import build_graph
 from doc2tests.render.canonical import (
@@ -133,20 +134,26 @@ phase = st.session_state.get("phase", "start")
 # ------------------------------------------------------------------ start
 if phase == "start":
     st.subheader("1 · העלאת מסמך")
-    uploaded = st.file_uploader("צילום / סריקה של טופס", type=["jpg", "jpeg", "png"])
+    uploaded = st.file_uploader("צילום / סריקה / PDF / Word של טופס (כתב-יד או מודפס)",
+                                type=["jpg", "jpeg", "png", "pdf", "docx"])
     if uploaded is not None:
-        st.image(uploaded, caption="המסמך שהועלה", width=380)
+        suffix = Path(uploaded.name).suffix.lower()
+        if suffix in (".jpg", ".jpeg", ".png"):
+            st.image(uploaded, caption="המסמך שהועלה", width=380)
+        else:
+            st.info(f"📎 {uploaded.name}")
         if st.button("חלץ טמפלייט ▶", type="primary"):
             thread_id = f"ui-{abs(hash(uploaded.name)) % 100000}"
             out_dir = OUTPUT_ROOT / thread_id
             out_dir.mkdir(parents=True, exist_ok=True)
-            input_path = out_dir / "input.jpg"
+            input_path = out_dir / f"input{suffix}"
             input_path.write_bytes(uploaded.getvalue())
-            with st.spinner("מריץ OCR + חילוץ שדות (OpenAI vision)..."):
+            kind = SourceKind(detect_kind(str(input_path)))
+            with st.spinner("מחלץ שדות מהמסמך (OCR/vision או טקסט)..."):
                 graph = build_graph(build_vision_provider(), str(out_dir))
                 config = {"configurable": {"thread_id": thread_id}}
                 graph.invoke(GraphState(
-                    input_ref=InputRef(path=str(input_path), kind=SourceKind.image),
+                    input_ref=InputRef(path=str(input_path), kind=kind),
                     config=RunConfig(n=int(n), seed=int(seed), formats=list(formats)),
                 ), config)
                 snap = graph.get_state(config)

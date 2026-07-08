@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from doc2tests.contracts.enums import SourceKind
 from doc2tests.contracts.state import GraphState, InputRef, RunConfig
+from doc2tests.ingest.loaders import detect_kind
 from doc2tests.orchestrator.config import build_vision_provider
 from doc2tests.orchestrator.graph import build_graph
 
@@ -46,13 +47,14 @@ async def create_run(
     thread_id = f"api-{abs(hash(file.filename)) % 100000}"
     out_dir = OUTPUT_ROOT / thread_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    input_path = out_dir / "input.jpg"
+    suffix = Path(file.filename or "input.jpg").suffix.lower() or ".jpg"
+    input_path = out_dir / f"input{suffix}"
     input_path.write_bytes(await file.read())
 
     graph = build_graph(build_vision_provider(), str(out_dir))
     config = {"configurable": {"thread_id": thread_id}}
     state = GraphState(
-        input_ref=InputRef(path=str(input_path), kind=SourceKind.image),
+        input_ref=InputRef(path=str(input_path), kind=SourceKind(detect_kind(str(input_path)))),
         config=RunConfig(n=n, seed=seed, formats=formats.split(",")),
     )
     graph.invoke(state, config)
