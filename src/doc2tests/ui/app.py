@@ -129,7 +129,7 @@ def _custom_fill_section(template: CanonicalTemplate, out_dir: Path) -> None:
                        ("על הטמפלייט המקורי (אותה קונסטלציה)." if use_overlay
                         else "(תצוגת טבלה — אין תמונת מקור לטמפלייט)."))
             for r in recs:
-                html = (render_overlay_html(template, bg, r, mime=mime) if use_overlay
+                html = (render_overlay_html(template, bg, r, mime=mime) if (use_overlay and bg)
                         else render_html(template, r))
                 docx_path = custom_dir / f"custom_{r.index:03d}.docx"
                 render_docx(template, r, str(docx_path))
