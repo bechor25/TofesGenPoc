@@ -12,6 +12,11 @@ dependencies = [
     "jinja2>=3.1.6",
     "python-docx>=1.2.0",
     "faker>=40.28.1",
+    "langgraph>=1.2.8",
+    "streamlit>=1.59.1",
+    "fastapi>=0.139.0",
+    "uvicorn[standard]>=0.51.0",
+    "python-multipart>=0.0.32",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +40,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI dependency-injection idiom requires File()/Form() calls in defaults
+"src/doc2tests/api/main.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
