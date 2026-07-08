@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.139.0",
     "uvicorn[standard]>=0.51.0",
     "python-multipart>=0.0.32",
+    "docxtpl>=0.20.2",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +52,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["docx.*"]
+module = ["docx.*", "docxtpl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
