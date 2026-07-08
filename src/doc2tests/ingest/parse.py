@@ -13,13 +13,20 @@ _SCHEMA = (
     'Return ONLY a JSON object with keys: '
     '"raw_text" (string, all visible text), and '
     '"fields" (array). Each field: '
-    '{"label": <the printed field label>, "value": <the filled-in value, "" if blank>, '
+    '{"label": <the printed field label, transcribed exactly>, '
+    '"value": <the filled-in value, "" if blank>, '
     '"value_kind": "printed" | "handwritten", '
     '"bbox": {"page":1,"x":0..1,"y":0..1,"w":0..1,"h":0..1} | null }. '
     "Do not include commentary."
 )
 VISION_PROMPT = (
-    "You are a document parser. Read this scanned/photographed form (Hebrew, RTL). " + _SCHEMA
+    "You are a meticulous Hebrew document OCR parser. Read this scanned/photographed "
+    "form (Hebrew, right-to-left). Transcribe every label and value EXACTLY as written, "
+    "preserving Hebrew spelling, punctuation and digits — do not paraphrase, translate, "
+    "or guess plausible words. Include EVERY labelled field, even blank ones. "
+    "The bbox is the value's approximate location, normalized 0..1 of the image "
+    "(x,y = top-right of the value region for RTL); accuracy of transcription matters "
+    "more than the bbox. " + _SCHEMA
 )
 TEXT_PROMPT = (
     "You are a document parser. Below is the text of a Hebrew form/document. "

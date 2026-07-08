@@ -18,8 +18,13 @@ class OpenAIProvider:
 
             self._client = OpenAI(api_key=api_key)
 
-    def _create(self, messages: list[dict[str, Any]], json_mode: bool) -> LLMResponse:
-        kwargs: dict[str, Any] = {"model": self.model, "messages": messages}
+    def _create(
+        self, messages: list[dict[str, Any]], json_mode: bool, temperature: float = 0.0
+    ) -> LLMResponse:
+        # temperature=0 -> deterministic, stable extraction (no run-to-run drift)
+        kwargs: dict[str, Any] = {
+            "model": self.model, "messages": messages, "temperature": temperature,
+        }
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         resp = self._client.chat.completions.create(**kwargs)
@@ -44,6 +49,7 @@ class OpenAIProvider:
             b64 = base64.b64encode(img).decode("ascii")
             content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                # detail:high -> full-resolution OCR, critical for Hebrew handwriting
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"},
             })
         return self._create([{"role": "user", "content": content}], json_mode)

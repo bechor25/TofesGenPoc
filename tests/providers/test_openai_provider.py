@@ -49,4 +49,13 @@ def test_extract_vision_embeds_image_as_data_uri():
     content = rec["messages"][-1]["content"]
     image_parts = [c for c in content if c["type"] == "image_url"]
     assert image_parts and image_parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert image_parts[0]["image_url"]["detail"] == "high"   # full-res OCR
     assert rec["response_format"] == {"type": "json_object"}
+    assert rec["temperature"] == 0.0                          # deterministic
+
+
+def test_complete_text_is_deterministic():
+    rec: dict = {}
+    p = OpenAIProvider(model="gpt-4o", client=_FakeClient(rec))
+    p.complete_text("hi")
+    assert rec["temperature"] == 0.0
