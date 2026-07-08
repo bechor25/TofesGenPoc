@@ -42,3 +42,5 @@ files = ["src", "tests"]
 addopts = "-q"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# only collect test functions; avoids grabbing domain enums like TestClass
+python_classes = []
