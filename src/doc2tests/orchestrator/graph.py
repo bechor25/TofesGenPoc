@@ -5,12 +5,14 @@ from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from doc2tests.contracts.state import GraphState
+from doc2tests.contracts.state import GraphState, StageError
 from doc2tests.coverage.report import build_coverage
 from doc2tests.deid.detect import detect_fields
 from doc2tests.generate.population import generate_population
+from doc2tests.ingest.loaders import detect_kind, load_images
 from doc2tests.ingest.parse import ingest_parse
 from doc2tests.providers.base import LLMProvider
+from doc2tests.render.layout import generate_layout_template
 from doc2tests.render.run import render_fill
 from doc2tests.schema.infer import extract_schema
 from doc2tests.template.anchor import anchor_fields
@@ -34,6 +36,18 @@ def _coverage_node(state: GraphState) -> dict[str, Any]:
     return {"coverage": build_coverage(state.template, state.population)}
 
 
+def _build_layout_node(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
+    """Recreate the source document as fillable HTML (skipped for Word inputs)."""
+    if state.template is None or detect_kind(state.input_ref.path) == "docx":
+        return {}
+    try:
+        images = load_images(state.input_ref.path)
+        html = generate_layout_template(images, state.template.fields, provider)
+    except Exception as exc:  # noqa: BLE001 - layout is best-effort, never fatal
+        return {"errors": [StageError(stage="build_layout", message=str(exc))]}
+    return {"layout_html": html}
+
+
 def build_graph(vision_provider: LLMProvider, out_dir: str) -> Any:
     """Compile the F1..F6 workflow with a human review gate before generation.
 
@@ -47,6 +61,7 @@ def build_graph(vision_provider: LLMProvider, out_dir: str) -> Any:
     g.add_node("build_template", build_template)
     g.add_node("anchor_fields", anchor_fields)
     g.add_node("extract_schema", extract_schema)
+    g.add_node("build_layout", lambda s: _build_layout_node(s, vision_provider))
     g.add_node("review_gate", review_gate)
     g.add_node("generate_population", generate_population)
     g.add_node("coverage", _coverage_node)
@@ -57,7 +72,8 @@ def build_graph(vision_provider: LLMProvider, out_dir: str) -> Any:
     g.add_edge("detect_fields", "build_template")
     g.add_edge("build_template", "anchor_fields")
     g.add_edge("anchor_fields", "extract_schema")
-    g.add_edge("extract_schema", "review_gate")
+    g.add_edge("extract_schema", "build_layout")
+    g.add_edge("build_layout", "review_gate")
     g.add_edge("review_gate", "generate_population")
     g.add_edge("generate_population", "coverage")
     g.add_edge("coverage", "render_fill")

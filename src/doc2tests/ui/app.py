@@ -31,7 +31,7 @@ from doc2tests.render.canonical import (
 )
 from doc2tests.render.docx import render_docx
 from doc2tests.render.html import render_html
-from doc2tests.render.overlay import has_overlay, render_overlay_html
+from doc2tests.render.layout import fill_layout
 
 load_dotenv()
 
@@ -84,23 +84,27 @@ def _download_row(template: CanonicalTemplate, out_dir: Path) -> None:
                     'וניתן למילוי חוזר עם כל דאטה.</div>', unsafe_allow_html=True)
 
 
-def _overlay_section(template: CanonicalTemplate, record: Record | None = None) -> None:
-    """Exact-layout view: values overlaid on the ORIGINAL document (same
-    constellation). Available for image/PDF sources with anchored coordinates."""
-    bg = st.session_state.get("bg_bytes")
-    mime = st.session_state.get("bg_mime", "image/jpeg")
-    if not bg or not has_overlay(template):
+def _layout_section(template: CanonicalTemplate, record: Record | None = None) -> None:
+    """The faithful digital RECREATION of the source document (same design),
+    empty as a template or filled with a record. Available for image/PDF sources."""
+    layout = st.session_state.get("layout_html")
+    if not layout:
         return
-    html = render_overlay_html(template, bg, record, mime=mime)
-    title = "🎯 טמפלייט מדויק על המקור" if record is None else "🎯 מסמך ממולא על המקור"
-    with st.expander(f"{title} — אותה קונסטלציה", expanded=(record is None)):
-        st.components.v1.html(html, height=560, scrolling=True)
-        fname = "template_overlay.html" if record is None else "filled_overlay.html"
+    if record is None:
+        values = {f.id: "" for f in template.fields}          # clear all slots
+    else:
+        values = {f.id: "" for f in template.fields}
+        values.update({fid: v.value for fid, v in record.values.items()})
+    html = fill_layout(layout, values)
+    title = ("🎯 טמפלייט משוחזר — עיצוב זהה למקור, ללא ערכים" if record is None
+             else "🎯 מסמך ממולא — עיצוב זהה למקור")
+    with st.expander(title, expanded=True):
+        st.components.v1.html(html, height=620, scrolling=True)
+        fname = "template.html" if record is None else "filled.html"
         st.download_button(f"⬇ {fname}", html, file_name=fname, mime="text/html",
-                           key=f"ov_{fname}")
-        st.markdown('<div class="hint">מיקום לפי התוויות המודפסות (OCR מקומי). '
-                    'פריסת-טבלה עשויה לדרוש כוונון — ניתן לתקן תוויות ב-review gate.</div>',
-                    unsafe_allow_html=True)
+                           key=f"lay_{fname}_{record.index if record else 'blank'}")
+        st.markdown('<div class="hint">שוחזר ע"י המודל מתוך המסמך המקורי. '
+                    'ניתן להוריד ולמלא שוב ושוב עם כל דאטה.</div>', unsafe_allow_html=True)
 
 
 def _custom_fill_section(template: CanonicalTemplate, out_dir: Path) -> None:
@@ -122,18 +126,17 @@ def _custom_fill_section(template: CanonicalTemplate, out_dir: Path) -> None:
             recs = records_from_rows(template, rows)
             custom_dir = out_dir / "custom"
             custom_dir.mkdir(parents=True, exist_ok=True)
-            bg = st.session_state.get("bg_bytes")
-            mime = st.session_state.get("bg_mime", "image/jpeg")
-            use_overlay = bool(bg) and has_overlay(template)
+            layout = st.session_state.get("layout_html")
             st.success(f"מולאו {len(recs)} מסמכים " +
-                       ("על הטמפלייט המקורי (אותה קונסטלציה)." if use_overlay
-                        else "(תצוגת טבלה — אין תמונת מקור לטמפלייט)."))
+                       ("על הטמפלייט המשוחזר (עיצוב זהה)." if layout
+                        else "(תצוגת טבלה — אין טמפלייט משוחזר)."))
             for r in recs:
-                html = (render_overlay_html(template, bg, r, mime=mime) if (use_overlay and bg)
-                        else render_html(template, r))
+                values = {f.id: "" for f in template.fields}
+                values.update({fid: v.value for fid, v in r.values.items()})
+                html = fill_layout(layout, values) if layout else render_html(template, r)
                 docx_path = custom_dir / f"custom_{r.index:03d}.docx"
                 render_docx(template, r, str(docx_path))
-                st.components.v1.html(html, height=560 if use_overlay else 260, scrolling=True)
+                st.components.v1.html(html, height=620 if layout else 260, scrolling=True)
                 d1, d2 = st.columns(2)
                 d1.download_button(f"⬇ HTML #{r.index}", html,
                                    file_name=f"custom_{r.index}.html", mime="text/html",
@@ -198,6 +201,7 @@ if phase == "start":
             st.session_state.update(
                 graph=graph, thread_id=thread_id, out_dir=str(out_dir),
                 template=snap.values["template"], errors=snap.values.get("errors", []),
+                layout_html=snap.values.get("layout_html"),
                 bg_bytes=bg_bytes, bg_mime=bg_mime, phase="review",
             )
             st.rerun()
@@ -211,7 +215,7 @@ elif phase == "review":
         st.warning("שגיאות בחילוץ: " + "; ".join(e.message for e in st.session_state["errors"]))
     st.caption(f"סוג מסמך: {template.doc_type} · {len(template.fields)} שדות זוהו")
 
-    _overlay_section(template)
+    _layout_section(template)
     _download_row(template, out_dir)
 
     st.markdown("**שדות שזוהו** (ניתן לערוך תוויות):")
@@ -266,7 +270,7 @@ elif phase == "done":
     if coverage and coverage.gaps:
         st.markdown("**פערי כיסוי:** " + "; ".join(coverage.gaps))
 
-    _overlay_section(template, population[0] if population else None)
+    _layout_section(template, population[0] if population else None)
     _download_row(template, out_dir)
 
     st.markdown("**⬇ ייצוא dataset:**")

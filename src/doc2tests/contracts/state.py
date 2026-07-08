@@ -89,6 +89,7 @@ class GraphState(BaseModel):
     detected_fields: list[DetectedField] = PField(default_factory=list)
     template: CanonicalTemplate | None = None
     field_schema: FieldSchema | None = None
+    layout_html: str | None = None       # faithful HTML recreation of the source
     review: ReviewDecision | None = None
     population: list[Record] = PField(default_factory=list)
     coverage: CoverageReport | None = None
