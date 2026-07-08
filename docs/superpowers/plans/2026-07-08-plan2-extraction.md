@@ -194,16 +194,22 @@ Expected: FAIL — `ModuleNotFoundError`
 ```python
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable
 
 _NON_ASCII = re.compile(r"[^a-z0-9]+")
 
 
+def _stable_suffix(label: str) -> int:
+    digest = hashlib.sha1(label.encode("utf-8")).hexdigest()
+    return int(digest[:4], 16) % 10000
+
+
 def slugify(label: str) -> str:
     ascii_only = label.strip().lower().encode("ascii", "ignore").decode("ascii")
     slug = _NON_ASCII.sub("_", ascii_only).strip("_")
-    return slug or f"field_{abs(hash(label)) % 10000}"
+    return slug or f"field_{_stable_suffix(label)}"
 
 
 def unique_slug(label: str, seen: Iterable[str]) -> str:
@@ -222,7 +228,7 @@ def unique_slug(label: str, seen: Iterable[str]) -> str:
 Run: `uv run pytest tests/common/test_slug.py -v`
 Expected: PASS (4 tests)
 
-Note: `slugify("")` returns `field_<n>` where n derives from `hash("")`; the test only asserts the `field` prefix. For empty string Python's `hash("")==0`, so it yields `field_0`.
+Note: `slugify("")` returns `field_<n>` where n is a stable sha1-derived number (deterministic across runs); the test only asserts the `field` prefix.
 
 - [ ] **Step 5: Commit (local)**
 
