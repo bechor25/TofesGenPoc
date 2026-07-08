@@ -88,11 +88,9 @@ class GraphState(BaseModel):
     parse_result: ParseResult | None = None
     detected_fields: list[DetectedField] = PField(default_factory=list)
     template: CanonicalTemplate | None = None
-    schema_: FieldSchema | None = PField(default=None, alias="schema")
+    field_schema: FieldSchema | None = None
     review: ReviewDecision | None = None
     population: list[Record] = PField(default_factory=list)
     coverage: CoverageReport | None = None
     outputs: list[RenderedDoc] = PField(default_factory=list)
     errors: list[StageError] = PField(default_factory=list)
-
-    model_config = {"populate_by_name": True}
