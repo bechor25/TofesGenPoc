@@ -122,12 +122,18 @@ def _custom_fill_section(template: CanonicalTemplate, out_dir: Path) -> None:
             recs = records_from_rows(template, rows)
             custom_dir = out_dir / "custom"
             custom_dir.mkdir(parents=True, exist_ok=True)
-            st.success(f"מולאו {len(recs)} מסמכים.")
+            bg = st.session_state.get("bg_bytes")
+            mime = st.session_state.get("bg_mime", "image/jpeg")
+            use_overlay = bool(bg) and has_overlay(template)
+            st.success(f"מולאו {len(recs)} מסמכים " +
+                       ("על הטמפלייט המקורי (אותה קונסטלציה)." if use_overlay
+                        else "(תצוגת טבלה — אין תמונת מקור לטמפלייט)."))
             for r in recs:
-                html = render_html(template, r)
+                html = (render_overlay_html(template, bg, r, mime=mime) if use_overlay
+                        else render_html(template, r))
                 docx_path = custom_dir / f"custom_{r.index:03d}.docx"
                 render_docx(template, r, str(docx_path))
-                st.components.v1.html(html, height=260, scrolling=True)
+                st.components.v1.html(html, height=560 if use_overlay else 260, scrolling=True)
                 d1, d2 = st.columns(2)
                 d1.download_button(f"⬇ HTML #{r.index}", html,
                                    file_name=f"custom_{r.index}.html", mime="text/html",
@@ -277,15 +283,16 @@ elif phase == "done":
         for r in population[:10]
     ], use_container_width=True)
 
-    st.markdown("**תצוגת מסמך ממולא + הורדות:**")
-    html_docs = [d for d in outputs if d.fmt == "html"]
-    if html_docs:
-        st.components.v1.html(Path(html_docs[0].path).read_text(encoding="utf-8"),
-                              height=360, scrolling=True)
-    for d in outputs[:20]:
-        p = Path(d.path)
-        if p.exists():
-            st.download_button(f"⬇ {p.name}", p.read_bytes(), file_name=p.name, key=d.path)
+    with st.expander("📊 גרסת טבלת-נתונים (לא הטמפלייט) + הורדות", expanded=False):
+        st.caption("תצוגה מובנית לנוחות בדיקה. הטמפלייט המדויק הוא ה-overlay למעלה 🎯")
+        html_docs = [d for d in outputs if d.fmt == "html"]
+        if html_docs:
+            st.components.v1.html(Path(html_docs[0].path).read_text(encoding="utf-8"),
+                                  height=300, scrolling=True)
+        for d in outputs[:20]:
+            p = Path(d.path)
+            if p.exists():
+                st.download_button(f"⬇ {p.name}", p.read_bytes(), file_name=p.name, key=d.path)
 
     _custom_fill_section(template, out_dir)
 
