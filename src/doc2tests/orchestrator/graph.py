@@ -13,6 +13,7 @@ from doc2tests.ingest.parse import ingest_parse
 from doc2tests.providers.base import LLMProvider
 from doc2tests.render.run import render_fill
 from doc2tests.schema.infer import extract_schema
+from doc2tests.template.anchor import anchor_fields
 from doc2tests.template.build import build_template
 
 
@@ -44,6 +45,7 @@ def build_graph(vision_provider: LLMProvider, out_dir: str) -> Any:
     g.add_node("ingest_parse", lambda s: ingest_parse(s, vision_provider))
     g.add_node("detect_fields", detect_fields)
     g.add_node("build_template", build_template)
+    g.add_node("anchor_fields", anchor_fields)
     g.add_node("extract_schema", extract_schema)
     g.add_node("review_gate", review_gate)
     g.add_node("generate_population", generate_population)
@@ -53,7 +55,8 @@ def build_graph(vision_provider: LLMProvider, out_dir: str) -> Any:
     g.add_edge(START, "ingest_parse")
     g.add_edge("ingest_parse", "detect_fields")
     g.add_edge("detect_fields", "build_template")
-    g.add_edge("build_template", "extract_schema")
+    g.add_edge("build_template", "anchor_fields")
+    g.add_edge("anchor_fields", "extract_schema")
     g.add_edge("extract_schema", "review_gate")
     g.add_edge("review_gate", "generate_population")
     g.add_edge("generate_population", "coverage")

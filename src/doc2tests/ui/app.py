@@ -15,9 +15,10 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from doc2tests.contracts.enums import SourceKind
+from doc2tests.contracts.records import Record
 from doc2tests.contracts.state import GraphState, InputRef, RunConfig
 from doc2tests.contracts.template import CanonicalTemplate
-from doc2tests.ingest.loaders import detect_kind
+from doc2tests.ingest.loaders import detect_kind, load_images
 from doc2tests.orchestrator.config import build_vision_provider
 from doc2tests.orchestrator.graph import build_graph
 from doc2tests.render.canonical import (
@@ -30,6 +31,7 @@ from doc2tests.render.canonical import (
 )
 from doc2tests.render.docx import render_docx
 from doc2tests.render.html import render_html
+from doc2tests.render.overlay import has_overlay, render_overlay_html
 
 load_dotenv()
 
@@ -80,6 +82,25 @@ def _download_row(template: CanonicalTemplate, out_dir: Path) -> None:
                            file_name="template.json", mime="application/json")
         st.markdown('<div class="hint">ה-DOCX מכיל <code>{{ placeholders }}</code> '
                     'וניתן למילוי חוזר עם כל דאטה.</div>', unsafe_allow_html=True)
+
+
+def _overlay_section(template: CanonicalTemplate, record: Record | None = None) -> None:
+    """Exact-layout view: values overlaid on the ORIGINAL document (same
+    constellation). Available for image/PDF sources with anchored coordinates."""
+    bg = st.session_state.get("bg_bytes")
+    mime = st.session_state.get("bg_mime", "image/jpeg")
+    if not bg or not has_overlay(template):
+        return
+    html = render_overlay_html(template, bg, record, mime=mime)
+    title = "🎯 טמפלייט מדויק על המקור" if record is None else "🎯 מסמך ממולא על המקור"
+    with st.expander(f"{title} — אותה קונסטלציה", expanded=(record is None)):
+        st.components.v1.html(html, height=560, scrolling=True)
+        fname = "template_overlay.html" if record is None else "filled_overlay.html"
+        st.download_button(f"⬇ {fname}", html, file_name=fname, mime="text/html",
+                           key=f"ov_{fname}")
+        st.markdown('<div class="hint">מיקום לפי התוויות המודפסות (OCR מקומי). '
+                    'פריסת-טבלה עשויה לדרוש כוונון — ניתן לתקן תוויות ב-review gate.</div>',
+                    unsafe_allow_html=True)
 
 
 def _custom_fill_section(template: CanonicalTemplate, out_dir: Path) -> None:
@@ -149,7 +170,18 @@ if phase == "start":
             input_path = out_dir / f"input{suffix}"
             input_path.write_bytes(uploaded.getvalue())
             kind = SourceKind(detect_kind(str(input_path)))
-            with st.spinner("מחלץ שדות מהמסמך (OCR/vision או טקסט)..."):
+            # background image for the exact-layout overlay
+            bg_bytes: bytes | None
+            if suffix in (".jpg", ".jpeg", ".png"):
+                bg_bytes = uploaded.getvalue()
+                bg_mime = "image/png" if suffix == ".png" else "image/jpeg"
+            elif suffix == ".pdf":
+                imgs = load_images(str(input_path))
+                bg_bytes = imgs[0] if imgs else None
+                bg_mime = "image/png"
+            else:
+                bg_bytes, bg_mime = None, "image/jpeg"
+            with st.spinner("מחלץ שדות + קואורדינטות (vision + OCR מקומי)..."):
                 graph = build_graph(build_vision_provider(), str(out_dir))
                 config = {"configurable": {"thread_id": thread_id}}
                 graph.invoke(GraphState(
@@ -160,7 +192,7 @@ if phase == "start":
             st.session_state.update(
                 graph=graph, thread_id=thread_id, out_dir=str(out_dir),
                 template=snap.values["template"], errors=snap.values.get("errors", []),
-                phase="review",
+                bg_bytes=bg_bytes, bg_mime=bg_mime, phase="review",
             )
             st.rerun()
 
@@ -173,6 +205,7 @@ elif phase == "review":
         st.warning("שגיאות בחילוץ: " + "; ".join(e.message for e in st.session_state["errors"]))
     st.caption(f"סוג מסמך: {template.doc_type} · {len(template.fields)} שדות זוהו")
 
+    _overlay_section(template)
     _download_row(template, out_dir)
 
     st.markdown("**שדות שזוהו** (ניתן לערוך תוויות):")
@@ -227,6 +260,7 @@ elif phase == "done":
     if coverage and coverage.gaps:
         st.markdown("**פערי כיסוי:** " + "; ".join(coverage.gaps))
 
+    _overlay_section(template, population[0] if population else None)
     _download_row(template, out_dir)
 
     st.markdown("**⬇ ייצוא dataset:**")

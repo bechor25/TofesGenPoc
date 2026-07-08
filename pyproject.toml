@@ -19,6 +19,8 @@ dependencies = [
     "python-multipart>=0.0.32",
     "docxtpl>=0.20.2",
     "pymupdf>=1.28.0",
+    "pytesseract>=0.3.13",
+    "pillow>=12.3.0",
 ]
 
 [project.optional-dependencies]
@@ -53,7 +55,7 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["docx.*", "docxtpl.*", "fitz"]
+module = ["docx.*", "docxtpl.*", "fitz", "pytesseract.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
