@@ -9,6 +9,19 @@ def test_valid_israeli_id_detected():
     assert pii_type == PiiType.IL_ID
 
 
+def test_id_label_wins_over_ocr_broken_checksum():
+    # real handwritten id from the bank form; a misread digit fails the checksum,
+    # but the label "מספר זהות" still identifies it as an ID field.
+    ft, pii, _ = classify_value("מספר זהות (מבקש ראשי)", "318885684")
+    assert ft == FieldType.israeli_id
+    assert pii is True
+
+
+def test_bare_valid_id_without_label():
+    ft, _, _ = classify_value("", "123456782")
+    assert ft == FieldType.israeli_id
+
+
 def test_date_detected():
     ft, _, _ = classify_value("תאריך כניסה", "31.10.21")
     assert ft == FieldType.date
