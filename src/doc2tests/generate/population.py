@@ -23,11 +23,17 @@ _VALIDATED = {
 
 def _class_counts(n: int, mix: dict[TestClass, float]) -> list[TestClass]:
     counts = {c: int(n * w) for c, w in mix.items()}
-    while sum(counts.values()) < n:  # distribute rounding remainder
-        counts[TestClass.equivalence] += 1
-    seq: list[TestClass] = []
-    for c, k in counts.items():
-        seq.extend([c] * k)
+    # guarantee every class is represented when there is room (don't lose negatives
+    # to rounding at small N — they are the point of a test population)
+    if n >= len(mix):
+        for c in mix:
+            counts[c] = max(1, counts[c])
+    # reconcile to exactly n by adjusting the equivalence bucket
+    counts[TestClass.equivalence] = max(0, counts[TestClass.equivalence]
+                                        + n - sum(counts.values()))
+    seq: list[TestClass] = [c for c, k in counts.items() for _ in range(k)]
+    while len(seq) < n:
+        seq.append(TestClass.equivalence)
     return seq[:n]
 
 

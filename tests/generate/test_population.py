@@ -37,6 +37,14 @@ def test_population_covers_all_three_classes():
     assert classes == {TestClass.equivalence, TestClass.boundary, TestClass.negative}
 
 
+def test_small_n_still_covers_all_classes():
+    # even at N=5 no class is lost to rounding
+    pop = generate_population(_state(5))["population"]
+    assert len(pop) == 5
+    assert {r.test_class for r in pop} == {
+        TestClass.equivalence, TestClass.boundary, TestClass.negative}
+
+
 def test_equivalence_records_have_valid_ids():
     pop = generate_population(_state(50))["population"]
     for r in pop:
