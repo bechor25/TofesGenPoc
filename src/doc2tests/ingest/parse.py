@@ -19,18 +19,28 @@ _SCHEMA = (
     '"bbox": {"page":1,"x":0..1,"y":0..1,"w":0..1,"h":0..1} | null }. '
     "Do not include commentary."
 )
+_COMPLETENESS = (
+    "Extract EVERY piece of variable / filled-in information as a field — be exhaustive. "
+    "This includes: the recipient/addressee block (person or company name, institution, "
+    "full address, city, PO box), every id/reference/assessment/receipt number, all dates, "
+    "amounts and sums, phone numbers, גוש/חלקה/תת-חלקה parcel numbers, names of parties "
+    "(seller/buyer/applicant), and any handwritten or typed value. Treat anything that "
+    "would change between two copies of this form as a value (not as a static label). "
+    "Also include labelled fields that are currently blank. "
+)
 VISION_PROMPT = (
     "You are a meticulous Hebrew document OCR parser. Read this scanned/photographed "
     "form (Hebrew, right-to-left). Transcribe every label and value EXACTLY as written, "
     "preserving Hebrew spelling, punctuation and digits — do not paraphrase, translate, "
-    "or guess plausible words. Include EVERY labelled field, even blank ones. "
+    "or guess plausible words. " + _COMPLETENESS +
     "The bbox is the value's approximate location, normalized 0..1 of the image "
     "(x,y = top-right of the value region for RTL); accuracy of transcription matters "
     "more than the bbox. " + _SCHEMA
 )
 TEXT_PROMPT = (
     "You are a document parser. Below is the text of a Hebrew form/document. "
-    "Identify its labelled fields and their values. " + _SCHEMA + "\n\nDOCUMENT TEXT:\n"
+    "Identify its labelled fields and their values. " + _COMPLETENESS + _SCHEMA
+    + "\n\nDOCUMENT TEXT:\n"
 )
 
 

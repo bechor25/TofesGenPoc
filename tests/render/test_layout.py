@@ -1,7 +1,36 @@
 from doc2tests.contracts.enums import FieldType
 from doc2tests.contracts.template import Field
 from doc2tests.providers.base import LLMResponse
-from doc2tests.render.layout import fill_layout, generate_layout_template
+from doc2tests.render.layout import deidentify_layout, fill_layout, generate_layout_template
+
+
+def test_deidentify_replaces_leaked_personal_values():
+    html = "<div>לכבוד שמחייב בכור</div><td>318885684</td><td>אב</td>"
+    out = deidentify_layout(html, {"name": "שמחייב בכור", "pid": "318885684", "x": "אב"})
+    assert "שמחייב בכור" not in out
+    assert "318885684" not in out
+    assert "{{ name }}" in out and "{{ pid }}" in out
+    assert "אב" in out  # too short (< 3) -> left as-is, not over-matched
+
+
+def test_deidentify_prefers_longer_values_first():
+    html = "<td>ירושלים הבירה</td>"
+    out = deidentify_layout(html, {"a": "ירושלים", "b": "ירושלים הבירה"})
+    assert "{{ b }}" in out
+
+
+def test_deidentify_redacts_residual_numbers():
+    # postal code / id numbers the model kept as static text get redacted
+    html = "<div>אלקנה 4481400</div><td>119128627</td>"
+    out = deidentify_layout(html, {})
+    assert "4481400" not in out
+    assert "119128627" not in out
+
+
+def test_deidentify_keeps_placeholder_numbers_intact():
+    # a digit-heavy placeholder id must survive residual redaction
+    html = "<td>{{ 04_6327888 }}</td>"
+    assert deidentify_layout(html, {}) == html
 
 
 def test_fill_layout_substitutes_all_brace_variants():

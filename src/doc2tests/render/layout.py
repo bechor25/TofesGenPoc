@@ -18,16 +18,24 @@ def _const(value: str) -> Callable[[re.Match[str]], str]:
     return repl
 
 _LAYOUT_PROMPT = (
-    "Recreate this document as ONE self-contained HTML page (inline CSS only) that "
-    "visually REPLICATES the original layout as faithfully as possible: the same overall "
-    "structure, the same titles and sub-headers, the SAME tables with identical columns "
-    "and rows, and every printed field label in its original position. Use dir=\"rtl\" and "
-    "Hebrew. Keep every printed/static text (titles, headers, labels) verbatim. WHERE A "
-    "FILLED-IN VALUE BELONGS, put EXACTLY one Jinja2 placeholder of the form {{ field_id }} "
-    "in that cell and nothing else, using ONLY these field ids (id: label):\n"
-    "{fields}\n"
-    "Do not invent new ids, do not output any real values, do not add commentary or "
-    "markdown fences. Output ONLY the HTML document."
+    "Recreate this document as ONE self-contained, print-quality HTML page (inline CSS "
+    "only) that visually REPLICATES the original as faithfully as possible: reproduce the "
+    "same overall structure and proportions, the titles and sub-headers, the SAME tables "
+    "with identical columns/rows and visible borders, text alignment, relative font sizes, "
+    "bold/underline emphasis, and the position of every pre-printed field label. Use "
+    'dir="rtl" and Hebrew.\n'
+    "CRITICAL — this must be a BLANK TEMPLATE with NO personal data:\n"
+    "• Keep ONLY the form's fixed scaffolding: titles, section headers, pre-printed field "
+    "labels, table column headers, and boilerplate sentences — verbatim.\n"
+    "• Replace EVERY variable / filled-in datum with a placeholder — this includes the "
+    "recipient/addressee name, company, institution and address, all id/reference/receipt/"
+    "assessment numbers, dates, amounts, phone numbers, גוש/חלקה/תת-חלקה numbers, and the "
+    "names of any parties. Do NOT leave any real name, number, address or date in the "
+    "output.\n"
+    "• In each such value slot put EXACTLY one placeholder {{ field_id }} and nothing else, "
+    "using ONLY these field ids (id: label):\n{fields}\n"
+    "Do not invent new ids, do not output any real values, no commentary, no markdown "
+    "fences. Output ONLY the HTML document."
 )
 
 
@@ -47,6 +55,40 @@ def generate_layout_template(
     prompt = _LAYOUT_PROMPT.format(fields=field_lines)
     resp = provider.extract_vision(images, prompt, json_mode=False)
     return _strip_to_html(resp.text)
+
+
+_DIGIT_RUN = re.compile(r"\d[\d./\- ]{3,}\d")  # 5+ chars: ids, postal, phone, dates
+
+
+def deidentify_layout(html: str, value_by_id: dict[str, str], min_len: int = 3) -> str:
+    """Deterministic safety net: replace any detected personal VALUE that leaked into
+    the recreated template with its placeholder, so no real data remains. Short values
+    (< min_len) are skipped to avoid over-matching. Then residual numeric PII (ids,
+    postal codes, phones, dates) that the model kept as static text is redacted."""
+    out = html
+    # longest values first so a value that contains another is handled correctly
+    for fid, val in sorted(value_by_id.items(), key=lambda kv: -len(kv[1].strip())):
+        v = val.strip()
+        if len(v) < min_len:
+            continue
+        token = f"{{{{ {fid} }}}}"
+        for variant in (v, escape(v), " ".join(v.split())):
+            out = out.replace(variant, token)
+    return _redact_residual_numbers(out)
+
+
+def _redact_residual_numbers(html: str) -> str:
+    """Redact leftover multi-digit sequences — a blank template must contain no real
+    id / postal / phone / date numbers. Placeholders ``{{ id }}`` are protected so
+    digit-bearing field ids are never corrupted."""
+    placeholders = re.findall(r"\{\{.*?\}\}", html)
+    tmp = html
+    for i, ph in enumerate(placeholders):
+        tmp = tmp.replace(ph, f"\x00{i}\x00", 1)
+    tmp = _DIGIT_RUN.sub("―――", tmp)
+    for i, ph in enumerate(placeholders):
+        tmp = tmp.replace(f"\x00{i}\x00", ph)
+    return tmp
 
 
 def fill_layout(template_html: str, values: dict[str, str]) -> str:

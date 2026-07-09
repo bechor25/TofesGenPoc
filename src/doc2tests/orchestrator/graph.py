@@ -5,6 +5,7 @@ from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from doc2tests.common.logging import get_logger
 from doc2tests.contracts.state import GraphState, StageError
 from doc2tests.coverage.report import build_coverage
 from doc2tests.deid.detect import detect_fields
@@ -12,11 +13,13 @@ from doc2tests.generate.population import generate_population
 from doc2tests.ingest.loaders import detect_kind, load_images
 from doc2tests.ingest.parse import ingest_parse
 from doc2tests.providers.base import LLMProvider
-from doc2tests.render.layout import generate_layout_template
+from doc2tests.render.layout import deidentify_layout, generate_layout_template
 from doc2tests.render.run import render_fill
 from doc2tests.schema.infer import extract_schema
 from doc2tests.template.anchor import anchor_fields
 from doc2tests.template.build import build_template
+
+_log = get_logger("graph")
 
 
 def review_gate(state: GraphState) -> dict[str, Any]:
@@ -37,13 +40,21 @@ def _coverage_node(state: GraphState) -> dict[str, Any]:
 
 
 def _build_layout_node(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
-    """Recreate the source document as fillable HTML (skipped for Word inputs)."""
+    """Recreate the source document as a fillable, de-identified HTML template
+    (skipped for Word inputs)."""
     if state.template is None or detect_kind(state.input_ref.path) == "docx":
         return {}
     try:
         images = load_images(state.input_ref.path)
         html = generate_layout_template(images, state.template.fields, provider)
+        value_by_id = {tf.id: df.value for tf, df in
+                       zip(state.template.fields, state.detected_fields, strict=False)}
+        html = deidentify_layout(html, value_by_id)
+        n_pii = sum(1 for v in value_by_id.values() if v.strip())
+        _log.info("recreated layout (%d chars), de-identified %d detected values",
+                  len(html), n_pii)
     except Exception as exc:  # noqa: BLE001 - layout is best-effort, never fatal
+        _log.exception("build_layout failed")
         return {"errors": [StageError(stage="build_layout", message=str(exc))]}
     return {"layout_html": html}
 
