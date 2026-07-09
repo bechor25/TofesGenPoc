@@ -3,11 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from doc2tests.common.json_utils import extract_json
+from doc2tests.common.logging import get_logger
 from doc2tests.contracts.enums import ValueKind
 from doc2tests.contracts.state import GraphState, ParsedField, ParseResult, StageError
 from doc2tests.contracts.template import BBox
 from doc2tests.ingest.loaders import detect_kind, load_images, read_docx_text
 from doc2tests.providers.base import LLMProvider
+
+_log = get_logger("ingest")
 
 _SCHEMA = (
     'Return ONLY a JSON object with keys: '
@@ -73,17 +76,20 @@ def ingest_parse(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     """F1: route by input format.
     image/pdf -> vision extraction; docx -> text-LLM extraction."""
     path = state.input_ref.path
+    kind = detect_kind(path)
     try:
-        if detect_kind(path) == "docx":
+        if kind == "docx":
             text = read_docx_text(path)
             resp = provider.complete_text(TEXT_PROMPT + text, json_mode=True)
         else:  # image or pdf (rendered to page images)
             images = load_images(path)
             resp = provider.extract_vision(images, VISION_PROMPT, json_mode=True)
         raw_text, fields = _parse_fields(resp.text)
+        _log.info("ingest_parse: %s -> %d fields via %s", kind, len(fields), provider.name)
         return {"parse_result": ParseResult(
             raw_text=raw_text, fields=fields, provider=provider.name)}
     except Exception as exc:  # noqa: BLE001 - node boundary converts errors to state
+        _log.exception("ingest_parse failed for %s", path)
         return {
             "parse_result": ParseResult(provider=provider.name),
             "errors": [StageError(stage="ingest_parse", message=str(exc))],

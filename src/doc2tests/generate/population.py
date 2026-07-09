@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from doc2tests.common.logging import get_logger
 from doc2tests.contracts.enums import FieldType, TestClass
 from doc2tests.contracts.records import Record, Value
 from doc2tests.contracts.state import GraphState
@@ -10,6 +11,8 @@ from doc2tests.contracts.template import CanonicalTemplate, Field
 from doc2tests.generate.relations import violate_order
 from doc2tests.generate.strategies import strategy_for
 from doc2tests.validators import validate
+
+_log = get_logger("generate")
 
 # field types that carry a content validator we can deliberately break
 _VALIDATED = {
@@ -83,6 +86,9 @@ def generate_population(state: GraphState) -> dict[str, Any]:
             expected_valid=(cls != TestClass.negative),
             violates=violates, values=record_values,
         ))
+    n_neg = sum(1 for r in records if r.test_class == TestClass.negative)
+    _log.info("generated %d records (%d negative) for %d fields",
+              len(records), n_neg, len(tmpl.fields))
     return {"population": records}
 
 

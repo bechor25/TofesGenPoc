@@ -14,6 +14,7 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
+from doc2tests.common.logging import recent_logs
 from doc2tests.contracts.enums import SourceKind
 from doc2tests.contracts.records import Record
 from doc2tests.contracts.state import GraphState, InputRef, RunConfig
@@ -51,8 +52,35 @@ st.markdown("""
   div[data-testid="stMetric"] { background:#f4f7fc; border:1px solid #e6e8ee;
      border-radius:12px; padding:12px 16px; }
   .hint { color:#6b7280; font-size:.85rem; }
+  .stepper { display:flex; flex-direction:row-reverse; justify-content:space-between;
+     align-items:flex-start; margin:8px 0 22px; gap:6px; }
+  .step { flex:1; text-align:center; position:relative; }
+  .step .dot { width:34px; height:34px; border-radius:50%; margin:0 auto 6px;
+     display:flex; align-items:center; justify-content:center; font-weight:700;
+     background:#e6e8ee; color:#8a93a3; border:2px solid #e6e8ee; }
+  .step .lbl { font-size:.8rem; color:#8a93a3; }
+  .step.done .dot { background:#cfe0f8; color:#2b5cb8; border-color:#cfe0f8; }
+  .step.active .dot { background:linear-gradient(135deg,#2b5cb8,#3a6fd0); color:#fff;
+     border-color:#2b5cb8; box-shadow:0 4px 12px rgba(43,92,184,.35); }
+  .step.active .lbl { color:#1a2233; font-weight:700; }
+  .step:not(:first-child)::after { content:""; position:absolute; top:17px; right:50%;
+     width:100%; height:2px; background:#e6e8ee; z-index:-1; }
+  .step.done:not(:first-child)::after, .step.active:not(:first-child)::after {
+     background:#cfe0f8; }
 </style>
 """, unsafe_allow_html=True)
+
+
+def _stepper(active: int) -> None:
+    steps = ["העלאה", "חילוץ ושחזור", "סקירה ואישור", "יצירה ומילוי"]
+    html = ['<div class="stepper">']
+    for i, label in enumerate(steps, 1):
+        cls = "active" if i == active else ("done" if i < active else "")
+        mark = "✓" if i < active else str(i)
+        html.append(f'<div class="step {cls}"><div class="dot">{mark}</div>'
+                    f'<div class="lbl">{label}</div></div>')
+    html.append("</div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
 
 st.title("📄 doc2tests — מסמך → אוכלוסיית בדיקות")
 st.markdown(
@@ -154,12 +182,16 @@ with st.sidebar:
     if st.button("🔄 איפוס"):
         _reset()
         st.rerun()
+    with st.expander("🧾 לוגים", expanded=False):
+        logs = recent_logs(60)
+        st.code("\n".join(logs) if logs else "אין לוגים עדיין.", language="log")
 
 if not os.getenv("OPENAI_API_KEY"):
     st.error("חסר OPENAI_API_KEY בקובץ .env — נדרש לשלב החילוץ (vision).")
     st.stop()
 
 phase = st.session_state.get("phase", "start")
+_stepper({"start": 1, "review": 3, "done": 4}.get(phase, 1))
 
 # ------------------------------------------------------------------ start
 if phase == "start":
@@ -257,10 +289,17 @@ elif phase == "done":
     population, coverage, outputs = final["population"], final["coverage"], final["outputs"]
     out_dir = Path(st.session_state["out_dir"])
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("רשומות", len(population))
     c2.metric("מסמכים", len(outputs))
     c3.metric("כללים שנבדקו", len(coverage.rules_exercised) if coverage else 0)
+    if coverage and coverage.total_records:
+        pct = 100 * coverage.valid_records // coverage.total_records
+        c4.metric("רשומות תקינות", f"{coverage.valid_records}/{coverage.total_records}",
+                  f"{pct}%")
+    if coverage and coverage.unexpected_invalid:
+        st.error("⚠️ רשומות שסומנו תקינות אך נכשלו בוולידציה: "
+                 + str(coverage.unexpected_invalid))
 
     dist = Counter(r.test_class.value for r in population)
     st.markdown("**התפלגות מחלקות בדיקה:** " +
