@@ -60,6 +60,21 @@ def test_deterministic_same_seed():
     assert [r.values["pid"].value for r in a] == [r.values["pid"].value for r in b]
 
 
+def test_non_negative_records_are_fully_valid():
+    from doc2tests.validators import validate
+    pop = generate_population(_state(60))["population"]
+    for r in pop:
+        if r.test_class != TestClass.negative:
+            for v in r.values.values():
+                assert v.valid is True                       # tagged valid
+    # cross-check against the validators directly for equivalence records
+    tmpl_types = {"pid": FieldType.israeli_id, "a": FieldType.date, "b": FieldType.date}
+    for r in pop:
+        if r.test_class == TestClass.equivalence:
+            for fid, v in r.values.items():
+                assert validate(tmpl_types[fid], v.value) is True
+
+
 def test_passthrough_without_template():
     st = GraphState(input_ref=InputRef(path="x.jpeg", kind=SourceKind.image))
     assert generate_population(st)["population"] == []

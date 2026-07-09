@@ -38,6 +38,19 @@ def _value_for(field: Field, cls: TestClass, rng: random.Random) -> str:
     return rng.choice(neg) if neg else strat.equivalence()
 
 
+def _valid_value_for(
+    field: Field, cls: TestClass, rng: random.Random, attempts: int = 8
+) -> str:
+    """Value that MUST pass its validator (for equivalence/boundary). Retries a few
+    times, then falls back to a guaranteed-valid equivalence value."""
+    for _ in range(attempts):
+        v = _value_for(field, cls, rng)
+        if validate(field.type, v):
+            return v
+    fallback = strategy_for(field.type, rng).equivalence()
+    return fallback if validate(field.type, fallback) else v
+
+
 def _validated_fields(template: CanonicalTemplate) -> list[Field]:
     return [f for f in template.fields if f.type in _VALIDATED]
 
@@ -53,7 +66,8 @@ def generate_population(state: GraphState) -> dict[str, Any]:
     for i, cls in enumerate(classes):
         # generate a fully valid record first, then break one rule for negatives
         base_cls = TestClass.equivalence if cls == TestClass.negative else cls
-        values: dict[str, str] = {f.id: _value_for(f, base_cls, rng) for f in tmpl.fields}
+        values: dict[str, str] = {f.id: _valid_value_for(f, base_cls, rng)
+                                  for f in tmpl.fields}
 
         violates: str | None = None
         if cls == TestClass.negative:

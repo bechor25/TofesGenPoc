@@ -39,3 +39,10 @@ def test_rules_exercised_lists_violations():
 def test_gaps_flag_untested_negative_fields():
     rep = build_coverage(_tmpl(), _pop())
     assert isinstance(rep.gaps, list)
+
+
+def test_validity_summary_counts_and_no_unexpected_invalid():
+    rep = build_coverage(_tmpl(), _pop())
+    assert rep.total_records == 2
+    assert rep.valid_records == 1          # the equivalence record is fully valid
+    assert rep.unexpected_invalid == []    # the negative one is expected-invalid

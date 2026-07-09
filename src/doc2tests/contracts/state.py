@@ -56,6 +56,9 @@ class CoverageReport(BaseModel):
     cells: list[CoverageCell] = PField(default_factory=list)
     rules_exercised: list[str] = PField(default_factory=list)
     gaps: list[str] = PField(default_factory=list)
+    total_records: int = 0
+    valid_records: int = 0                       # records whose every value is valid
+    unexpected_invalid: list[int] = PField(default_factory=list)  # should stay empty
 
 
 class RenderedDoc(BaseModel):

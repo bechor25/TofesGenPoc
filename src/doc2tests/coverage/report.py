@@ -26,4 +26,15 @@ def build_coverage(template: CanonicalTemplate, population: list[Record]) -> Cov
     gaps = [f"{f.id}:{f.type.value} has no negative coverage"
             for f in template.fields
             if f.type in _VALIDATED and f.type.value not in tested_types]
-    return CoverageReport(cells=cells, rules_exercised=rules, gaps=gaps)
+
+    def _all_valid(rec: Record) -> bool:
+        return all(v.valid for v in rec.values.values())
+
+    valid_records = sum(1 for r in population if _all_valid(r))
+    # records that were meant to be valid but contain an invalid value (a defect)
+    unexpected = [r.index for r in population if r.expected_valid and not _all_valid(r)]
+    return CoverageReport(
+        cells=cells, rules_exercised=rules, gaps=gaps,
+        total_records=len(population), valid_records=valid_records,
+        unexpected_invalid=unexpected,
+    )
