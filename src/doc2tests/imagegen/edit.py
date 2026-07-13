@@ -42,6 +42,8 @@ def edit_form_image(
     doc_hint: str = "",
 ) -> bytes:
     prompt = build_edit_prompt(replacements, doc_hint)
-    n = sum(1 for r in replacements if r.old.strip() and r.old != r.new)
-    _log.info("editing image: %d value replacement(s)", n)
+    pairs = [r for r in replacements if r.old.strip() and r.old != r.new]
+    _log.info("editing image: %d value replacement(s)", len(pairs))
+    for r in pairs:
+        _log.info("  edit | %r -> %r", r.old, r.new)
     return provider.edit_image(original_png, prompt)

@@ -12,7 +12,10 @@ _GUSH_HINTS = ("גוש", "חלקה", "gush")
 _PHONE_HINTS = ("טלפון", "phone", "נייד", "פקס", "fax")
 _BRANCH_HINTS = ("סניף", "branch")
 _ASSESS_HINTS = ("שומה", "assessment", "מספר", "number", "אסמכתא", "קבלה", "תיק")
-_ADDR_HINTS = ("כתובת", "רחוב", "עיר", "ישוב", "יישוב", "מען", "address", "street", "city")
+# NB: no bare "מען" here — it is a substring of "נמען" (recipient = a NAME), and since
+# address is matched before name, it would mis-type the recipient name as an address.
+# "כתובת נמען" still classifies as address via the explicit "כתובת".
+_ADDR_HINTS = ("כתובת", "רחוב", "עיר", "ישוב", "יישוב", "address", "street", "city")
 
 # value-shape patterns (used when the label carries no semantic signal)
 _PHONE_RE = re.compile(r"^0\d{1,2}[-\s]?\d{6,7}$")

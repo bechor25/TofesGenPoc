@@ -21,7 +21,7 @@ class _StubProvider:
 def test_graph_runs_end_to_end_with_review(monkeypatch):
     monkeypatch.setattr("doc2tests.ingest.parse.rasterize", lambda p: [b"IMG"])
     stub = _StubProvider()
-    app = build_graph(stub, stub)
+    app = build_graph(stub)
     cfg = {"configurable": {"thread_id": "t1"}}
     init = GraphState(input_ref=InputRef(path="x.jpeg", kind=SourceKind.image))
 
@@ -32,9 +32,9 @@ def test_graph_runs_end_to_end_with_review(monkeypatch):
     assert detected and detected[0].field_type.value == "israeli_id"
     assert isinstance(detected[0], DetectedValue)
 
-    # user approves the detected values
+    # user approves the detected values -> graph generates DATA only
     app.update_state(cfg, {"review": ReviewDecision(approved=True, values=detected)})
     final = app.invoke(None, cfg)
     assert len(final["population"]) == final["config"].n
-    assert len(final["output_images"]) == final["config"].n
-    assert final["output_images"][0].startswith(b"EDITED:")
+    # image rendering is a SEPARATE on-demand step — the graph must NOT render images
+    assert not final.get("output_images")

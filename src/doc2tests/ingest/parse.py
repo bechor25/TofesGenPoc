@@ -18,13 +18,14 @@ def ingest_parse(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     path = state.input_ref.path
     try:
         images = rasterize(path)
-        raw_text, fields = extract_grounded(images, provider)
+        raw_text, doc_summary, fields = extract_grounded(images, provider)
         _log.info("ingest_parse: %d page(s) -> %d fields via %s",
                   len(images), len(fields), provider.name)
         return {
             "page_images": images,
             "parse_result": ParseResult(
-                raw_text=raw_text, fields=fields, provider=provider.name),
+                raw_text=raw_text, doc_summary=doc_summary, fields=fields,
+                provider=provider.name),
         }
     except Exception as exc:  # noqa: BLE001 - node boundary converts errors to state
         _log.exception("ingest_parse failed for %s", path)

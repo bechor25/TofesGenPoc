@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 from typing import Protocol
 
 from faker import Faker
@@ -26,10 +27,15 @@ class IsraeliIdStrategy(_Base):
 
 class DateStrategy(_Base):
     def generate(self, like: str = "") -> str:
+        # Era-match: anchor the new year to the ORIGINAL so a 2019 date stays ~2019 and
+        # a 1972 form stays ~1972 — never an implausible jump to a random old year.
+        # Day/month stay random-but-valid; separator matches the source.
+        sep = "/" if "/" in like else ("." if "." in like else "/")
+        years = re.findall(r"(?<!\d)(\d{4})(?!\d)", like)
+        base = int(years[-1]) if years else 2023
+        y = min(max(base + self.rng.randint(-1, 1), 1900), 2025)
         d = self.rng.randint(1, 28)
         m = self.rng.randint(1, 12)
-        y = self.rng.randint(1960, 2024)
-        sep = "/" if "/" in like else "."
         return f"{d:02d}{sep}{m:02d}{sep}{y}"
 
 

@@ -21,12 +21,23 @@ class ParsedField(BaseModel):
     # (name, id, personal address, diagnosis, age...) vs static form scaffolding
     # (institution name, office address, headings, form numbers) that must stay.
     personal: bool = True
+    # the extractor's semantic TYPE for the value, judged by content (not by matching
+    # label keywords). Drives which generator runs. None = the model gave none, so the
+    # value-shape classifier decides as a fallback.
+    field_type: FieldType | None = None
+    # a stable key naming the real-world VALUE. Fields the understanding agent judged to
+    # be the SAME entity (a recipient printed twice, a repeated address line) share one
+    # slot, so generation gives them one identical value. None = its own unique value.
+    slot: str | None = None
     bbox: BBox | None = None
 
 
 class ParseResult(BaseModel):
     raw_text: str = ""
     fields: list[ParsedField] = PField(default_factory=list)
+    # the understanding agent's one-line grasp of the whole document: what it is, its
+    # purpose, and what counts as personal vs static on it. Conditions the per-field calls.
+    doc_summary: str = ""
     provider: str = ""
 
 
@@ -39,6 +50,9 @@ class DetectedValue(BaseModel):
     is_personal: bool = False
     pii_type: PiiType | None = None
     value_kind: ValueKind = ValueKind.printed
+    # shared-value key from the understanding agent: fields with the same slot are one
+    # real-world entity and must receive the identical generated value (coherence).
+    slot: str | None = None
     bbox: BBox | None = None
 
 

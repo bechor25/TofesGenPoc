@@ -80,3 +80,16 @@ def test_combined_gush_helka_stays_gush_helka():
 def test_recipient_label_is_a_name():
     ft, _, _ = classify_value("לכבוד", "שמריך בכור גל")
     assert ft == FieldType.hebrew_name
+
+
+def test_bare_recipient_namen_is_a_name_not_address():
+    # regression: "נמען" contains the substring "מען"; it must NOT be typed as address
+    # (which would generate a street address where a recipient name belongs).
+    ft, _, _ = classify_value("נמען", "אריאל אלסייד")
+    assert ft == FieldType.hebrew_name
+
+
+def test_recipient_address_line_stays_address():
+    # an explicit "כתובת נמען" is still an address (the "כתובת" keyword wins)
+    ft, _, _ = classify_value("כתובת נמען שורה 1", "הרצל 5 חיפה")
+    assert ft == FieldType.address

@@ -44,3 +44,27 @@ def test_deterministic_same_seed():
 def test_passthrough_without_detected():
     st = GraphState(input_ref=InputRef(path="x.jpeg", kind=SourceKind.image))
     assert generate_population(st)["population"] == []
+
+
+def _coherence_state():
+    # a recipient address line printed twice (same slot) + a different line (other slot)
+    detected = [
+        DetectedValue(id="a1", label="נמען שורה 1", value="הרצל 5",
+                      field_type=FieldType.address, is_personal=True, slot="recip_l1"),
+        DetectedValue(id="a1r", label="נמען שורה 1 (חוזר)", value="הרצל 5",
+                      field_type=FieldType.address, is_personal=True, slot="recip_l1"),
+        DetectedValue(id="a2", label="נמען שורה 2", value="חיפה",
+                      field_type=FieldType.address, is_personal=True, slot="recip_l2"),
+    ]
+    return GraphState(
+        input_ref=InputRef(path="x.jpeg", kind=SourceKind.image),
+        detected=detected, config=RunConfig(n=5, seed=7),
+    )
+
+
+def test_same_slot_shares_one_value_across_the_form():
+    # the repeated recipient line must get the IDENTICAL generated value (coherence)
+    for rec in generate_population(_coherence_state())["population"]:
+        assert rec.values["a1"].value == rec.values["a1r"].value
+        # a different slot (line 2) is its own value, not tied to line 1
+        assert rec.values["a2"].value != rec.values["a1"].value

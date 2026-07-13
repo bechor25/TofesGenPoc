@@ -1,4 +1,4 @@
-from doc2tests.contracts.enums import ValueKind
+from doc2tests.contracts.enums import FieldType, ValueKind
 from doc2tests.ingest.grounded import Line, extract_grounded, structure, transcribe
 from doc2tests.providers.base import LLMResponse
 
@@ -9,9 +9,11 @@ _LINES_JSON = (
     '{"text":"רשות המסים","bbox":{"x":0.7,"y":0.02,"w":0.25,"h":0.03},"kind":"printed"}]}'
 )
 _FIELDS_JSON = (
-    '{"raw_text":"מספר זהות 318885684",'
-    '"fields":[{"label":"מספר זהות","value":"318885684","personal":true,'
-    '"value_kind":"handwritten","bbox":{"x":0.3,"y":0.1,"w":0.15,"h":0.03}},'
+    '{"doc":"טופס רשות המסים; ת\\"ז ושם אישיים, כותרת הרשות סטטית",'
+    '"raw_text":"מספר זהות 318885684",'
+    '"fields":[{"label":"מספר זהות","value":"318885684","personal":true,"type":"id",'
+    '"slot":"id_main","value_kind":"handwritten",'
+    '"bbox":{"x":0.3,"y":0.1,"w":0.15,"h":0.03}},'
     '{"label":"רשות","value":"רשות המסים","personal":false,"value_kind":"printed"}]}'
 )
 
@@ -51,17 +53,22 @@ def test_structure_pairs_label_and_value_constrained_to_lines():
         Line(text="מספר זהות", bbox=None, kind=ValueKind.printed),
         Line(text="318885684", bbox=None, kind=ValueKind.handwritten),
     ]
-    raw, fields = structure(lines, [b"IMG"], _TwoStageStub())
+    raw, doc, fields = structure(lines, [b"IMG"], _TwoStageStub())
+    assert doc.startswith("טופס רשות המסים")      # big-picture understanding surfaced
     assert fields[0].label == "מספר זהות"
     assert fields[0].value == "318885684"
     assert fields[0].value_kind == ValueKind.handwritten
     assert fields[0].personal is True
+    assert fields[0].field_type == FieldType.israeli_id   # model "type":"id" -> enum
+    assert fields[0].slot == "id_main"       # shared-value key parsed
     assert fields[1].personal is False       # static form content tagged non-personal
+    assert fields[1].field_type is None      # no type given -> classifier decides later
 
 
 def test_extract_grounded_runs_two_passes():
     stub = _TwoStageStub()
-    raw, fields = extract_grounded([b"IMG"], stub)
+    raw, doc, fields = extract_grounded([b"IMG"], stub)
     assert stub.vision_calls == 2          # pass 1 transcribe + pass 2 structure
     assert fields and fields[0].value == "318885684"
     assert "318885684" in raw
+    assert doc                             # document understanding returned
