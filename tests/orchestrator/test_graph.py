@@ -20,7 +20,8 @@ class _StubProvider:
 
 def test_graph_runs_end_to_end_with_review(monkeypatch):
     monkeypatch.setattr("doc2tests.ingest.parse.rasterize", lambda p: [b"IMG"])
-    app = build_graph(_StubProvider())
+    stub = _StubProvider()
+    app = build_graph(stub, stub)
     cfg = {"configurable": {"thread_id": "t1"}}
     init = GraphState(input_ref=InputRef(path="x.jpeg", kind=SourceKind.image))
 

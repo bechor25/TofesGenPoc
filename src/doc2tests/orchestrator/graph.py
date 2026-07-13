@@ -44,18 +44,19 @@ def _edit_images_node(state: GraphState, provider: LLMProvider) -> dict[str, Any
     return {"output_images": outputs, "errors": errors}
 
 
-def build_graph(provider: LLMProvider) -> Any:
+def build_graph(extract_provider: LLMProvider, image_provider: LLMProvider) -> Any:
     """Compile the pivot workflow with a human review gate before generation.
 
-    interrupt_before=["review_gate"] pauses once values are detected, so a person
-    can confirm/add/edit them, then resume to generate + edit images.
+    extract_provider runs the grounded extraction (e.g. local Qwen3-VL); image_provider
+    runs the edit (OpenAI gpt-image-2). interrupt_before=["review_gate"] pauses once
+    values are detected, so a person can confirm/add/edit them, then resume.
     """
     g = StateGraph(GraphState)
-    g.add_node("ingest_parse", lambda s: ingest_parse(s, provider))
+    g.add_node("ingest_parse", lambda s: ingest_parse(s, extract_provider))
     g.add_node("detect_fields", detect_fields)
     g.add_node("review_gate", review_gate)
     g.add_node("generate_population", generate_population)
-    g.add_node("edit_images", lambda s: _edit_images_node(s, provider))
+    g.add_node("edit_images", lambda s: _edit_images_node(s, image_provider))
 
     g.add_edge(START, "ingest_parse")
     g.add_edge("ingest_parse", "detect_fields")
