@@ -18,7 +18,7 @@ from typing import Any
 import streamlit as st
 from dotenv import load_dotenv
 
-from doc2tests.common.logging import recent_logs
+from doc2tests.common.logging import log_marker, logs_since, recent_logs
 from doc2tests.contracts.batch import DocumentResult
 from doc2tests.contracts.enums import FieldType, SourceKind
 from doc2tests.contracts.records import Record
@@ -28,6 +28,7 @@ from doc2tests.contracts.state import (
     InputRef,
     ReviewDecision,
 )
+from doc2tests.db import repo
 from doc2tests.ingest.loaders import detect_kind
 from doc2tests.orchestrator.batch import process_batch, render_variant
 from doc2tests.orchestrator.config import build_extract_provider, build_image_provider
@@ -195,33 +196,42 @@ def _thread_cfg() -> dict[str, Any]:
     return {"configurable": {"thread_id": st.session_state["thread_id"]}}
 
 
+def _variant_values(doc: DocumentResult, j: int) -> dict[str, str]:
+    """Human-readable {label: value} for one generated variant (stored in the DB)."""
+    rec = doc.population[j]
+    return {d.label: rec.values[d.id].value
+            for d in doc.detected if d.id in rec.values}
+
+
 # --- live status: run heavy work in a thread, stream the REAL stage + elapsed --------
 _STATUS_MAP = [
+    ("editing image", "יוצר תמונה ב-gpt-image-2"),
+    ("edit |", "יוצר תמונה ב-gpt-image-2"),
     ("rasteriz", "ממיר קובץ לתמונה"),
     ("transcribe", "מתעתק כל טקסט מהמסמך"),
     ("structure", "מבין ומבנה שדות"),
     ("understand", "מבין את מהות המסמך"),
     ("detect:", "מסווג ומחליט מה אישי"),
+    ("data agent", "כותב ערכי תיאור ריאליסטיים"),
     ("shared into slots", "מקשר ערכים חוזרים"),
     ("generated", "מייצר דאטה מאומת"),
-    ("editing image", "יוצר תמונה ב-gpt-image-2"),
-    ("edit |", "יוצר תמונה ב-gpt-image-2"),
 ]
 
 
-def _friendly_status() -> str:
-    """Latest real pipeline stage, mapped to a Hebrew line — from the live log buffer."""
-    for line in reversed(recent_logs(20)):
+def _friendly_status(marker: int) -> str:
+    """Latest real pipeline stage (Hebrew) — scanning ONLY lines from THIS run (since
+    ``marker``), so stale history from a previous render can't leak in."""
+    for line in reversed(logs_since(marker)):
         msg = line.split("|", 1)[-1].strip().lower()
         for key, heb in _STATUS_MAP:
             if key in msg:
                 return heb
-    return "עובד..."
+    return ""
 
 
 def _run_live(fn: Callable[[], Any], label: str, box: Any) -> Any:
     """Run fn() in a background thread; stream the real stage + elapsed seconds into the
-    status box until it finishes. Returns fn()'s value (re-raises its error)."""
+    status box (in the LABEL, so it shows even collapsed). Returns fn()'s value."""
     out: dict[str, Any] = {}
     err: dict[str, BaseException] = {}
 
@@ -231,14 +241,17 @@ def _run_live(fn: Callable[[], Any], label: str, box: Any) -> Any:
         except BaseException as e:  # noqa: BLE001 - surfaced on the main thread below
             err["e"] = e
 
+    marker = log_marker()  # scope status to lines emitted from HERE on
     t = threading.Thread(target=work, daemon=True)
     t.start()
     ph = box.empty()
     t0 = time.time()
     while t.is_alive():
-        box.update(label=f"{label} · {int(time.time() - t0)} שנ׳")
-        ph.markdown(f"🔄 {_friendly_status()}")
-        time.sleep(0.5)
+        stage = _friendly_status(marker)
+        secs = int(time.time() - t0)
+        box.update(label=f"{label}{f' — {stage}' if stage else ''} · {secs} שנ׳")
+        ph.markdown(f"🔄 {stage or 'עובד...'}")
+        time.sleep(0.4)
     t.join()
     if "e" in err:
         box.update(label=f"{label} — שגיאה", state="error")
@@ -247,17 +260,59 @@ def _run_live(fn: Callable[[], Any], label: str, box: Any) -> Any:
     return out.get("v")
 
 
+def _archive_flow() -> None:
+    """History: every source original (with its unique id) and the images generated
+    from it. Click a generated variant to view/download its image."""
+    st.subheader("מאגר — קבצי מקור וכל מה שנוצר מהם")
+    if not repo.available():
+        st.info("אין חיבור למסד נתונים. הגדר DATABASE_URL (או הרץ ב-docker-compose) "
+                "כדי לשמור ולצפות בהיסטוריה.")
+        return
+    sources = repo.list_sources()
+    if not sources:
+        st.caption("עדיין לא נשמרו קבצים. עבד מסמך והפק תמונה — הוא ייכנס למאגר עם "
+                   "מספר יוניקי, ותחתיו כל מה שנוצר ממנו.")
+        return
+    _tiles([("קבצי מקור", str(len(sources))),
+            ("מסמכים שנוצרו", str(sum(s.n_generated for s in sources)))])
+    for src in sources:
+        with st.expander(f"#{src.id} · {src.filename} — {src.n_generated} מסמכים שנוצרו"):
+            if src.doc_summary:
+                st.caption(f"📄 {src.doc_summary}")
+            gens = repo.list_generated(src.id)
+            if not gens:
+                st.caption("אין עדיין תמונות שנוצרו (דאטה בלבד).")
+                continue
+            labels = [f"וריאציה {g.variant_index + 1}  ·  #{g.id}" for g in gens]
+            choice = st.radio("בחר מסמך שנוצר", labels, key=f"arc_{src.id}",
+                              index=0, horizontal=True)
+            g = gens[labels.index(choice)]
+            img = repo.get_image(g.id)
+            if img:
+                st.image(img, caption=choice, width=460)
+                st.download_button("⬇️ הורד", img, mime="image/png",
+                                   file_name=f"{src.filename}_{g.variant_index + 1}.png",
+                                   key=f"arcdl_{g.id}")
+            if g.values:
+                with st.expander("הערכים של המסמך הזה"):
+                    st.json(g.values)
+
+
 def main() -> None:
     _hero("מחולל טפסים", "החלפת ערכים אישיים בתמונת הטופס — נאמן למקור, מאומת, בסקייל")
     if not os.getenv("OPENAI_API_KEY"):
         st.error("חסר OPENAI_API_KEY בקובץ .env")
         return
 
-    mode = st.radio("מצב עבודה", ["מסמך יחיד", "אצווה — הרבה קבצים"], horizontal=True)
+    mode = st.radio("מצב עבודה",
+                    ["מסמך יחיד", "אצווה — הרבה קבצים", "מאגר — היסטוריה"],
+                    horizontal=True)
     if mode == "מסמך יחיד":
         _single_flow()
-    else:
+    elif mode == "אצווה — הרבה קבצים":
         _batch_flow()
+    else:
+        _archive_flow()
 
     with st.sidebar.expander("לוגים (מקצה לקצה)", expanded=False):
         logs = recent_logs(400)
@@ -365,21 +420,25 @@ def _review_phase() -> None:
         population = [p if isinstance(p, Record) else Record(**p)
                       for p in final["population"]]
         imgs = st.session_state.get("page_images") or []
-        st.session_state["doc_result"] = DocumentResult(
-            path=st.session_state.get("thread_id", "form"),
-            detected=snap.values["detected"],
-            population=population,
-            page_image=imgs[0] if imgs else None,
+        summary = st.session_state.get("doc_summary", "")
+        name = st.session_state.get("thread_id", "form")
+        doc = DocumentResult(
+            path=name, detected=snap.values["detected"], population=population,
+            page_image=imgs[0] if imgs else None, doc_summary=summary,
         )
+        st.session_state["doc_result"] = doc
+        # register the source in the archive; images are attached to it on render
+        st.session_state["source_id"] = repo.save_source(
+            name, doc.page_image, summary)
         st.session_state["single_rendered"] = {}
         st.session_state["phase"] = "done"
         st.rerun()
 
 
 def _render_many(doc: DocumentResult, indices: list[int],
-                 rendered: dict[int, bytes]) -> None:
+                 rendered: dict[int, bytes], source_id: int | None) -> None:
     """Render the selected variants one by one, streaming real progress (k/total +
-    elapsed). Skips already-rendered ones. Reruns when done so the table refreshes."""
+    elapsed). Skips already-rendered ones. Persists each image under its source."""
     todo = [j for j in indices if j not in rendered]
     if not todo:
         st.toast("כל הנבחרים כבר נוצרו")
@@ -388,9 +447,12 @@ def _render_many(doc: DocumentResult, indices: list[int],
     prog = st.progress(0.0)
     provider = build_image_provider()
     for k, j in enumerate(todo):
-        rendered[j] = _run_live(
+        img = _run_live(
             partial(render_variant, doc, j, provider),
             f"יוצר טופס {j + 1}  ({k + 1}/{len(todo)})", box)
+        rendered[j] = img
+        if source_id is not None:
+            repo.save_generated(source_id, j, _variant_values(doc, j), img)
         prog.progress((k + 1) / len(todo))
     box.update(label=f"✓ נוצרו {len(todo)} טפסים", state="complete")
     st.rerun()
@@ -440,7 +502,7 @@ def _done_phase() -> None:
         go_all = c2.button(f"🖼️ רנדר הכל ({len(recs)})")
         targets = list(range(len(recs))) if go_all else (selected if go_sel else [])
         if targets:
-            _render_many(doc, targets, rendered)
+            _render_many(doc, targets, rendered, st.session_state.get("source_id"))
 
         with st.expander("🔍 אבחון — מה קרה לכל שדה (מקצה לקצה)"):
             st.caption("לכל שדה: התווית, הסוג, אם להחלפה, הקישור (ערכים עם אותו קישור "
@@ -468,7 +530,7 @@ def _done_phase() -> None:
 
     if st.button("התחל מחדש"):
         for k in ("phase", "app", "detected", "page_images", "doc_result",
-                  "single_rendered", "thread_id"):
+                  "single_rendered", "thread_id", "source_id", "doc_summary"):
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -506,8 +568,9 @@ def _batch_flow() -> None:
 
 
 def _render_many_batch(doc: Any, i: int, indices: list[int],
-                       rendered: dict[tuple[int, int], bytes], name: str) -> None:
-    """Render selected variants of one batch file, streaming real progress."""
+                       rendered: dict[tuple[int, int], bytes], name: str,
+                       source_id: int | None) -> None:
+    """Render selected variants of one batch file, streaming real progress + persisting."""
     todo = [j for j in indices if (i, j) not in rendered]
     if not todo:
         st.toast("כל הנבחרים כבר נוצרו")
@@ -516,9 +579,12 @@ def _render_many_batch(doc: Any, i: int, indices: list[int],
     prog = st.progress(0.0)
     provider = build_image_provider()
     for k, j in enumerate(todo):
-        rendered[(i, j)] = _run_live(
+        img = _run_live(
             partial(render_variant, doc, j, provider),
             f"יוצר טופס {j + 1}  ({k + 1}/{len(todo)})", box)
+        rendered[(i, j)] = img
+        if source_id is not None:
+            repo.save_generated(source_id, j, _variant_values(doc, j), img)
         prog.progress((k + 1) / len(todo))
     box.update(label=f"✓ נוצרו {len(todo)} טפסים", state="complete")
     st.rerun()
@@ -529,6 +595,7 @@ def _render_batch_results(results: list[Any]) -> None:
     ok = sum(1 for r in results if not r.error)
     st.success(f"עובדו {len(results)} קבצים ({ok} תקינים). ערכים מאומתים מוכנים.")
     rendered: dict[tuple[int, int], bytes] = st.session_state["batch_rendered"]
+    source_ids: dict[int, int | None] = st.session_state.setdefault("batch_source_ids", {})
 
     for i, doc in enumerate(results):
         name = names[i] if i < len(names) else doc.path
@@ -539,6 +606,8 @@ def _render_batch_results(results: list[Any]) -> None:
             if doc.error:
                 st.error(doc.error)
                 continue
+            if i not in source_ids:  # register the source once, for the archive
+                source_ids[i] = repo.save_source(name, doc.page_image, doc.doc_summary)
             if doc.page_image:
                 st.image(doc.page_image, width=280, caption="מקור")
 
@@ -565,7 +634,7 @@ def _render_batch_results(results: list[Any]) -> None:
             targets = (list(range(len(doc.population))) if ga
                        else (selected if gs else []))
             if targets:
-                _render_many_batch(doc, i, targets, rendered, name)
+                _render_many_batch(doc, i, targets, rendered, name, source_ids.get(i))
 
             done_js = [j for j in range(len(doc.population)) if (i, j) in rendered]
             if done_js:

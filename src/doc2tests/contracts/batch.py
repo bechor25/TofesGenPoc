@@ -15,6 +15,7 @@ class DocumentResult(BaseModel):
     detected: list[DetectedValue] = PField(default_factory=list)
     population: list[Record] = PField(default_factory=list)
     page_image: bytes | None = None
+    doc_summary: str = ""
     error: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}

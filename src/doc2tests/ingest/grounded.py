@@ -127,6 +127,8 @@ def _kind(v: Any) -> ValueKind:
 
 
 def transcribe(images: list[bytes], provider: LLMProvider) -> list[Line]:
+    # pre-call marker so a live UI shows this stage DURING the (long) model call
+    _log.info("grounded transcribe: reading %d page image(s)...", len(images))
     resp = provider.extract_vision(images, _TRANSCRIBE_PROMPT, json_mode=True)
     data = extract_json(resp.text)
     lines: list[Line] = []
@@ -158,6 +160,8 @@ def structure(
     """Return (raw_text, doc_summary, fields). doc_summary is the agent's big-picture
     grasp of the document; fields carry personal/type/slot decisions made in that light."""
     prompt = _STRUCTURE_PROMPT + _lines_payload(lines)
+    # pre-call marker so a live UI shows this stage DURING the (long) model call
+    _log.info("grounded structure: understanding the document + structuring fields...")
     resp = provider.extract_vision(images, prompt, json_mode=True)
     data = extract_json(resp.text)
     fields: list[ParsedField] = []

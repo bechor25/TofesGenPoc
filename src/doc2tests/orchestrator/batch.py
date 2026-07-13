@@ -37,8 +37,10 @@ def process_document(
         st = st.model_copy(update=generate_population(st, provider))
         err = st.errors[0].message if st.errors else None
         page = st.page_images[0] if st.page_images else None
+        summary = st.parse_result.doc_summary if st.parse_result else ""
         return DocumentResult(path=path, detected=st.detected,
-                              population=st.population, page_image=page, error=err)
+                              population=st.population, page_image=page,
+                              doc_summary=summary, error=err)
     except Exception as exc:  # noqa: BLE001 - one file's failure must not stop the batch
         _log.exception("process_document failed for %s", path)
         return DocumentResult(path=path, error=str(exc))

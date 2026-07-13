@@ -52,6 +52,8 @@ def generate_text_variants(
     if not fields or n < 1:
         return {}
     try:
+        # pre-call marker so a live UI shows this stage DURING the model call
+        _log.info("data agent: writing realistic values for %d field(s)...", len(fields))
         resp = provider.complete_text(
             _prompt(fields, doc_summary, n), system=_SYSTEM, json_mode=True)
         data = extract_json(resp.text)

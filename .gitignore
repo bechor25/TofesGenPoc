@@ -19,3 +19,6 @@ wheels/
 
 # Runtime outputs
 output/
+
+# Local archive DB
+*.db
