@@ -36,15 +36,25 @@ _TRANSCRIBE_PROMPT = (
 
 _STRUCTURE_PROMPT = (
     "STRUCTURE TASK. Below are text lines already transcribed from a Hebrew form, each "
-    "with a position. Pair every field LABEL with its filled-in VALUE. A value is "
-    "variable / case-specific information: person or company names, id numbers, dates, "
-    "amounts, phone numbers, addresses, גוש/חלקה parcel numbers, reference/assessment "
-    "numbers. CRITICAL: every value MUST be copied verbatim from the lines below — never "
-    "invent or complete a value that is not present. Also include labelled fields that "
-    "are blank (value \"\"). Return ONLY JSON: "
+    "with a position. Pair every field LABEL with its filled-in VALUE. CRITICAL: every "
+    "value MUST be copied verbatim from the lines below — never invent or complete a "
+    "value that is not present. Also include labelled fields that are blank (value \"\").\n"
+    "For EACH field set \"personal\": true or false.\n"
+    "  personal=true  — data that identifies a specific PERSON or a specific CASE and "
+    "would differ on another person's copy of this form: patient/applicant/party names "
+    "and surnames, id numbers (ת\"ז), personal/home address, age, date of birth, personal "
+    "phone, the medical diagnosis / reason / description / finding (הבחנה/אבחנה/סיבה/תיאור), "
+    "case dates and amounts, the case's גוש/חלקה, seller/buyer details.\n"
+    "  personal=false — STATIC form scaffolding printed by the issuing office that stays "
+    "identical on every copy: the institution/office name (e.g. רשות המסים, ביטוח לאומי), "
+    "office address and office phone, section headings and table COLUMN LABELS, "
+    "form/barcode/reference numbers printed by the office, reception hours, general "
+    "instructions, the signing clerk's title.\n"
+    "When unsure, prefer false (keep the form scaffolding intact). "
+    "Return ONLY JSON: "
     '{"raw_text":<all text joined>,'
     '"fields":[{"label":<label text>,"value":<value text>,'
-    '"value_kind":"printed"|"handwritten",'
+    '"personal":true|false,"value_kind":"printed"|"handwritten",'
     '"bbox":{"x":0..1,"y":0..1,"w":0..1,"h":0..1}|null}]}. '
     "No commentary.\n\nLINES:\n"
 )
@@ -102,7 +112,8 @@ def structure(
     for f in data.get("fields", []):
         fields.append(ParsedField(
             label=str(f.get("label", "")), value=str(f.get("value", "")),
-            value_kind=_kind(f.get("value_kind")), bbox=_bbox(f.get("bbox")),
+            value_kind=_kind(f.get("value_kind")),
+            personal=bool(f.get("personal", True)), bbox=_bbox(f.get("bbox")),
         ))
     raw = str(data.get("raw_text", "")) or " ".join(ln.text for ln in lines)
     _log.info("grounded structure: %d field(s)", len(fields))

@@ -17,6 +17,10 @@ class ParsedField(BaseModel):
     label: str
     value: str
     value_kind: ValueKind = ValueKind.printed
+    # the extractor's semantic judgment: is this person/case-specific data to replace
+    # (name, id, personal address, diagnosis, age...) vs static form scaffolding
+    # (institution name, office address, headings, form numbers) that must stay.
+    personal: bool = True
     bbox: BBox | None = None
 
 

@@ -24,22 +24,24 @@ def test_detect_assigns_ids_and_types():
     assert len({d.id for d in out}) == 3          # unique ids
 
 
-def test_every_filled_value_is_personal():
-    # not just names/ids: dates, addresses, numbers, free text — anything with a
-    # value is case-specific and must be replaced.
+def test_extractor_personal_flag_drives_replacement():
+    # the extractor tags person/case data personal=True and static form content False
     st = _state([
-        ParsedField(label="תאריך", value="28/07/2019"),
-        ParsedField(label="גוש", value="6941"),
-        ParsedField(label="הערות", value="בקשה כללית"),
-        ParsedField(label="מספר שומה", value="119128627"),
+        ParsedField(label="שם הרוכש", value="דנה כהן", personal=True),
+        ParsedField(label="אבחנה", value="קרע בכתף ימין", personal=True),
+        ParsedField(label="רשות המסים", value="רשות המסים בישראל", personal=False),
+        ParsedField(label="טלפון משרד", value="04-6327888", personal=False),
     ])
-    out = detect_fields(st)["detected"]
-    assert all(d.is_personal for d in out)
+    out = {d.label: d for d in detect_fields(st)["detected"]}
+    assert out["שם הרוכש"].is_personal is True
+    assert out["אבחנה"].is_personal is True
+    assert out["רשות המסים"].is_personal is False       # static scaffolding kept
+    assert out["טלפון משרד"].is_personal is False
 
 
 def test_empty_value_is_not_personal():
-    # a labelled-but-blank field has nothing to replace
-    st = _state([ParsedField(label="רשות המסים", value="")])
+    # a personal-tagged but blank field has nothing to replace
+    st = _state([ParsedField(label="שם", value="", personal=True)])
     out = detect_fields(st)["detected"]
     assert out[0].is_personal is False
 

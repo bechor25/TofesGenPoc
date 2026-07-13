@@ -10,8 +10,9 @@ _LINES_JSON = (
 )
 _FIELDS_JSON = (
     '{"raw_text":"מספר זהות 318885684",'
-    '"fields":[{"label":"מספר זהות","value":"318885684",'
-    '"value_kind":"handwritten","bbox":{"x":0.3,"y":0.1,"w":0.15,"h":0.03}}]}'
+    '"fields":[{"label":"מספר זהות","value":"318885684","personal":true,'
+    '"value_kind":"handwritten","bbox":{"x":0.3,"y":0.1,"w":0.15,"h":0.03}},'
+    '{"label":"רשות","value":"רשות המסים","personal":false,"value_kind":"printed"}]}'
 )
 
 
@@ -54,6 +55,8 @@ def test_structure_pairs_label_and_value_constrained_to_lines():
     assert fields[0].label == "מספר זהות"
     assert fields[0].value == "318885684"
     assert fields[0].value_kind == ValueKind.handwritten
+    assert fields[0].personal is True
+    assert fields[1].personal is False       # static form content tagged non-personal
 
 
 def test_extract_grounded_runs_two_passes():

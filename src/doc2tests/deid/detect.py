@@ -16,10 +16,10 @@ def detect_fields(state: GraphState) -> dict[str, Any]:
         ftype, _pii, pii_type = classify_value(pf.label, pf.value)
         fid = unique_slug(pf.label or pf.value or "field", seen)
         seen.append(fid)
-        # Every filled-in value is case-specific and must be replaced — not just a
-        # narrow PII whitelist. A blank field has nothing to replace. The review gate
-        # lets the user untick anything that should stay (e.g. a static form number).
-        is_personal = bool(pf.value.strip())
+        # Replace only person/case-specific data (the extractor's semantic judgment),
+        # never static form scaffolding — and never a blank field. The review gate lets
+        # the user override any decision.
+        is_personal = pf.personal and bool(pf.value.strip())
         out.append(DetectedValue(
             id=fid, label=pf.label, value=pf.value, field_type=ftype,
             is_personal=is_personal, pii_type=pii_type,
