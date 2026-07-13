@@ -4,7 +4,7 @@ import pytest
 
 from doc2tests.contracts.enums import SourceKind
 from doc2tests.contracts.state import GraphState, InputRef, RunConfig
-from doc2tests.orchestrator.config import build_provider
+from doc2tests.orchestrator.config import build_extract_provider, build_image_provider
 from doc2tests.orchestrator.graph import build_graph
 
 pytestmark = pytest.mark.skipif(
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_live_full_pipeline_produces_edited_images():
-    graph = build_graph(build_provider())
+    graph = build_graph(build_extract_provider(), build_image_provider())
     config = {"configurable": {"thread_id": "live-e2e"}}
     state = GraphState(
         input_ref=InputRef(path="tests/fixtures/doc2_printed_tax_letter.jpeg",

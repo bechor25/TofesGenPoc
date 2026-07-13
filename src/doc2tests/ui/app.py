@@ -25,7 +25,7 @@ from doc2tests.contracts.state import (
 )
 from doc2tests.ingest.loaders import detect_kind
 from doc2tests.orchestrator.batch import process_batch, render_variant
-from doc2tests.orchestrator.config import build_provider
+from doc2tests.orchestrator.config import build_extract_provider, build_image_provider
 from doc2tests.orchestrator.graph import build_graph
 from doc2tests.ui.helpers import records_to_rows, zip_images
 
@@ -224,7 +224,7 @@ def _upload_phase() -> None:
     if uploaded and st.button("זהה ערכים", type="primary"):
         path = _save_upload(uploaded)
         st.session_state["thread_id"] = uploaded.name
-        app = build_graph(build_provider())
+        app = build_graph(build_extract_provider(), build_image_provider())
         init = GraphState(
             input_ref=InputRef(path=path, kind=SourceKind(detect_kind(path))))
         with st.spinner("מזהה ערכים..."):
@@ -342,7 +342,7 @@ def _batch_flow() -> None:
     if files and st.button("עבד אצווה (חילוץ + יצירת ערכים)", type="primary"):
         paths = [_save_upload(f) for f in files]
         with st.spinner(f"מעבד {len(paths)} קבצים (ללא יצירת תמונות)..."):
-            results = process_batch(paths, build_provider(), n=int(n),
+            results = process_batch(paths, build_extract_provider(), n=int(n),
                                     max_workers=int(workers))
         st.session_state["batch_results"] = results
         st.session_state["batch_names"] = [f.name for f in files]
@@ -385,7 +385,7 @@ def _render_batch_results(results: list[Any]) -> None:
                                          mime="image/png", key=f"bdl_{i}_{j}")
                 elif cell.button(f"רנדר {j + 1}", key=f"br_{i}_{j}"):
                     with st.spinner("מרנדר תמונה..."):
-                        rendered[key] = render_variant(doc, j, build_provider())
+                        rendered[key] = render_variant(doc, j, build_image_provider())
                     st.rerun()
 
             done = [rendered[(i, j)] for j in range(len(doc.population))
