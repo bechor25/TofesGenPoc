@@ -31,19 +31,129 @@ from doc2tests.ui.helpers import records_to_rows, zip_images
 
 load_dotenv()
 
-st.set_page_config(page_title="מחולל טפסים", layout="wide")
-st.markdown(
-    "<style>body,.stApp{direction:rtl;text-align:right}"
-    ".stDataFrame,.stDataEditor{direction:rtl}</style>", unsafe_allow_html=True)
+st.set_page_config(page_title="מחולל טפסים", layout="wide",
+                   initial_sidebar_state="collapsed")
+
+_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;800&display=swap');
+
+:root{
+  --glass: rgba(255,255,255,.045);
+  --glass-brd: rgba(255,255,255,.10);
+  --accent: #8b5cf6;
+  --accent2: #4f46e5;
+  --muted: #9aa3c0;
+}
+html, body, .stApp, [class*="css"]{ font-family:'Heebo',-apple-system,'Segoe UI',sans-serif; }
+.stApp{
+  direction:rtl; text-align:right; color:#e8eaf2;
+  background:
+    radial-gradient(1100px 520px at 78% -8%, rgba(124,58,237,.35) 0%, transparent 60%),
+    radial-gradient(900px 500px at 12% 8%, rgba(59,130,246,.18) 0%, transparent 55%),
+    linear-gradient(160deg,#0a0e1f 0%,#0b1226 55%,#090c1a 100%);
+  background-attachment: fixed;
+}
+[data-testid="stHeader"]{ background:transparent; }
+.block-container{ padding-top:2.2rem; max-width:1200px; }
+
+/* headings */
+h1{ font-weight:800; letter-spacing:-.02em; font-size:2.5rem; margin-bottom:.2rem; }
+h2,h3{ font-weight:600; letter-spacing:-.01em; }
+.stCaption, .st-emotion-cache small{ color:var(--muted); }
+
+/* glass panels: expanders + dataframes */
+[data-testid="stExpander"]{
+  background:var(--glass); border:1px solid var(--glass-brd);
+  border-radius:20px; backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+  box-shadow:0 10px 40px rgba(0,0,0,.35); overflow:hidden; margin-bottom:14px;
+}
+[data-testid="stExpander"] summary{ font-weight:600; padding:.5rem .3rem; }
+[data-testid="stDataFrame"], [data-testid="stTable"]{
+  border-radius:16px; overflow:hidden; border:1px solid var(--glass-brd);
+}
+
+/* inputs / uploader as glass */
+[data-testid="stFileUploaderDropzone"],
+.stTextInput input, .stNumberInput input, [data-baseweb="select"]>div{
+  background:var(--glass)!important; border:1px solid var(--glass-brd)!important;
+  border-radius:14px!important; color:#e8eaf2!important;
+}
+[data-testid="stFileUploaderDropzone"]{ padding:1.4rem; }
+
+/* buttons: purple gradient, rounded, glow */
+.stButton>button, .stDownloadButton>button{
+  background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%);
+  color:#fff; border:0; border-radius:14px; font-weight:600; padding:.5rem 1.15rem;
+  box-shadow:0 8px 24px rgba(124,58,237,.35); transition:transform .12s, box-shadow .12s;
+}
+.stButton>button:hover, .stDownloadButton>button:hover{
+  transform:translateY(-1px); box-shadow:0 12px 30px rgba(124,58,237,.5);
+}
+
+/* radio pills */
+[data-testid="stRadio"] label{ color:#cfd4e6; }
+
+/* stepper */
+.stepper{ display:flex; gap:10px; margin:8px 0 26px; flex-wrap:wrap; }
+.step{
+  flex:1; min-width:120px; padding:12px 14px; border-radius:16px;
+  background:var(--glass); border:1px solid var(--glass-brd); backdrop-filter:blur(14px);
+  color:var(--muted); font-weight:600; font-size:.92rem; text-align:center;
+  transition:all .2s;
+}
+.step.done{ color:#c7f9dd; border-color:rgba(52,211,153,.35); }
+.step.active{
+  color:#fff; border-color:rgba(139,92,246,.6);
+  background:linear-gradient(135deg,rgba(124,58,237,.35),rgba(79,70,229,.25));
+  box-shadow:0 8px 26px rgba(124,58,237,.35);
+}
+.step .n{ opacity:.6; margin-inline-start:6px; }
+
+/* hero card */
+.hero{
+  background:var(--glass); border:1px solid var(--glass-brd); border-radius:24px;
+  backdrop-filter:blur(20px); padding:26px 30px; margin-bottom:22px;
+  box-shadow:0 18px 60px rgba(0,0,0,.4);
+  background-image:radial-gradient(600px 200px at 85% -40%, rgba(124,58,237,.4), transparent 60%);
+}
+.hero h1{ margin:0; }
+.hero .sub{ color:var(--muted); font-size:1.05rem; margin-top:4px; }
+
+/* metric tiles */
+.tiles{ display:flex; gap:16px; flex-wrap:wrap; margin:6px 0 18px; }
+.tile{
+  flex:1; min-width:150px; padding:18px 20px; border-radius:18px;
+  background:var(--glass); border:1px solid var(--glass-brd); backdrop-filter:blur(16px);
+  box-shadow:0 10px 34px rgba(0,0,0,.3);
+}
+.tile .lbl{ color:var(--muted); font-size:.85rem; }
+.tile .val{ font-size:1.9rem; font-weight:800; letter-spacing:-.02em; margin-top:2px; }
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
 
 _STEPS = ["העלאה", "זיהוי ערכים", "סקירה ואישור", "יצירה ומילוי", "הורדה"]
 
 
+def _hero(title: str, sub: str) -> None:
+    st.markdown(f"<div class='hero'><h1>{title}</h1>"
+                f"<div class='sub'>{sub}</div></div>", unsafe_allow_html=True)
+
+
+def _tiles(items: list[tuple[str, str]]) -> None:
+    cells = "".join(
+        f"<div class='tile'><div class='lbl'>{lbl}</div>"
+        f"<div class='val'>{val}</div></div>" for lbl, val in items)
+    st.markdown(f"<div class='tiles'>{cells}</div>", unsafe_allow_html=True)
+
+
 def _stepper(active: int) -> None:
-    cols = st.columns(len(_STEPS))
-    for i, (c, name) in enumerate(zip(cols, _STEPS, strict=True)):
-        mark = "✅" if i < active else ("🔵" if i == active else "⚪")
-        c.markdown(f"{mark} **{name}**")
+    steps = ""
+    for i, name in enumerate(_STEPS):
+        cls = "done" if i < active else ("active" if i == active else "")
+        steps += f"<div class='step {cls}'>{name}<span class='n'>{i + 1}</span></div>"
+    st.markdown(f"<div class='stepper'>{steps}</div>", unsafe_allow_html=True)
 
 
 def _save_upload(uploaded: Any) -> str:
@@ -59,7 +169,7 @@ def _thread_cfg() -> dict[str, Any]:
 
 
 def main() -> None:
-    st.title("מחולל טפסים — החלפת ערכים בתמונה")
+    _hero("מחולל טפסים", "החלפת ערכים אישיים בתמונת הטופס — נאמן למקור, מאומת, בסקייל")
     if not os.getenv("OPENAI_API_KEY"):
         st.error("חסר OPENAI_API_KEY בקובץ .env")
         return
@@ -164,11 +274,14 @@ def _review_phase() -> None:
 def _done_phase() -> None:
     imgs = st.session_state.get("output_images") or []
     errs = st.session_state.get("errors") or []
-    st.success(f"נוצרו {len(imgs)} טפסים.")
+    recs = [Record(**p) for p in st.session_state.get("population", [])]
+    fields = len(recs[0].values) if recs else 0
+    _tiles([("טפסים שנוצרו", str(len(imgs))),
+            ("שדות שהוחלפו", str(fields)),
+            ("כשלים", str(len(errs)))])
     if errs:
         st.warning(f"{len(errs)} כשלו: " + "; ".join(errs[:3]))
 
-    recs = [Record(**p) for p in st.session_state.get("population", [])]
     if recs:
         with st.expander("הערכים שנוצרו (מאומתים)"):
             st.dataframe(records_to_rows(recs), use_container_width=True)
