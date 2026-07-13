@@ -24,6 +24,7 @@ from doc2tests.contracts.state import (
     ReviewDecision,
 )
 from doc2tests.ingest.loaders import detect_kind
+from doc2tests.orchestrator.batch import process_batch, render_variant
 from doc2tests.orchestrator.config import build_provider
 from doc2tests.orchestrator.graph import build_graph
 from doc2tests.ui.helpers import records_to_rows, zip_images
@@ -59,25 +60,31 @@ def _thread_cfg() -> dict[str, Any]:
 
 def main() -> None:
     st.title("מחולל טפסים — החלפת ערכים בתמונה")
-    if "phase" not in st.session_state:
-        st.session_state["phase"] = "upload"
-
-    phase = st.session_state["phase"]
-    _stepper({"upload": 0, "review": 2, "done": 4}[phase])
-
     if not os.getenv("OPENAI_API_KEY"):
         st.error("חסר OPENAI_API_KEY בקובץ .env")
         return
 
+    mode = st.radio("מצב עבודה", ["מסמך יחיד", "אצווה — הרבה קבצים"], horizontal=True)
+    if mode == "מסמך יחיד":
+        _single_flow()
+    else:
+        _batch_flow()
+
+    with st.sidebar.expander("לוגים", expanded=False):
+        st.code("\n".join(recent_logs(120)) or "—")
+
+
+def _single_flow() -> None:
+    if "phase" not in st.session_state:
+        st.session_state["phase"] = "upload"
+    phase = st.session_state["phase"]
+    _stepper({"upload": 0, "review": 2, "done": 4}[phase])
     if phase == "upload":
         _upload_phase()
     elif phase == "review":
         _review_phase()
     elif phase == "done":
         _done_phase()
-
-    with st.sidebar.expander("לוגים", expanded=False):
-        st.code("\n".join(recent_logs(120)) or "—")
 
 
 def _upload_phase() -> None:
@@ -181,6 +188,78 @@ def _done_phase() -> None:
                   "output_images", "errors", "thread_id"):
             st.session_state.pop(k, None)
         st.rerun()
+
+
+_UPLOAD_TYPES = ["jpg", "jpeg", "png", "pdf", "docx"]
+
+
+def _batch_flow() -> None:
+    st.subheader("אצווה — עיבוד הרבה קבצים בסקייל")
+    st.caption("שלב הדאטה (חילוץ + יצירת ערכים מאומתים) זול ורץ על כל הקבצים. "
+               "רינדור התמונה יקר — נעשה לפי דרישה, לכל וריאציה בנפרד.")
+    files = st.file_uploader("העלה טפסים (אפשר כמה)", type=_UPLOAD_TYPES,
+                             accept_multiple_files=True)
+    col_a, col_b = st.columns(2)
+    n = col_a.number_input("וריאציות לכל קובץ", min_value=1, max_value=50, value=10)
+    workers = col_b.number_input("מקביליות (קבצים במקביל)", min_value=1, max_value=16,
+                                 value=4)
+
+    if files and st.button("עבד אצווה (חילוץ + יצירת ערכים)", type="primary"):
+        paths = [_save_upload(f) for f in files]
+        with st.spinner(f"מעבד {len(paths)} קבצים (ללא יצירת תמונות)..."):
+            results = process_batch(paths, build_provider(), n=int(n),
+                                    max_workers=int(workers))
+        st.session_state["batch_results"] = results
+        st.session_state["batch_names"] = [f.name for f in files]
+        st.session_state["batch_rendered"] = {}
+        st.rerun()
+
+    stored = st.session_state.get("batch_results")
+    if stored:
+        _render_batch_results(stored)
+
+
+def _render_batch_results(results: list[Any]) -> None:
+    names = st.session_state.get("batch_names", [])
+    ok = sum(1 for r in results if not r.error)
+    st.success(f"עובדו {len(results)} קבצים ({ok} תקינים). ערכים מאומתים מוכנים.")
+    rendered: dict[tuple[int, int], bytes] = st.session_state["batch_rendered"]
+
+    for i, doc in enumerate(results):
+        name = names[i] if i < len(names) else doc.path
+        title = f"📄 {name} — {len(doc.population)} וריאציות"
+        if doc.error:
+            title += " ⚠️"
+        with st.expander(title):
+            if doc.error:
+                st.error(doc.error)
+                continue
+            if doc.page_image:
+                st.image(doc.page_image, width=280, caption="מקור")
+            st.dataframe(records_to_rows(doc.population), use_container_width=True)
+
+            st.caption("רינדור תמונה — קריאה יקרה, לחיצה = תמונה אחת:")
+            cols = st.columns(min(len(doc.population), 5) or 1)
+            for j in range(len(doc.population)):
+                cell = cols[j % len(cols)]
+                key = (i, j)
+                if key in rendered:
+                    cell.image(rendered[key], caption=f"וריאציה {j + 1}")
+                    cell.download_button("הורד", rendered[key],
+                                         file_name=f"{name}_{j + 1}.png",
+                                         mime="image/png", key=f"bdl_{i}_{j}")
+                elif cell.button(f"רנדר {j + 1}", key=f"br_{i}_{j}"):
+                    with st.spinner("מרנדר תמונה..."):
+                        rendered[key] = render_variant(doc, j, build_provider())
+                    st.rerun()
+
+            done = [rendered[(i, j)] for j in range(len(doc.population))
+                    if (i, j) in rendered]
+            if done:
+                st.download_button(f"הורד את כל שרונדרו ({len(done)}) — zip",
+                                   zip_images(done, prefix=name),
+                                   file_name=f"{name}_forms.zip",
+                                   mime="application/zip", key=f"bzip_{i}")
 
 
 if __name__ == "__main__":
