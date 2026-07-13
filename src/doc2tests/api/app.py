@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -173,6 +174,7 @@ def _frontend_dist() -> Path:
 
 # --- app ----------------------------------------------------------------------------
 def create_app() -> FastAPI:
+    load_dotenv()  # local dev picks up .env; in Docker the env is already set
     app = FastAPI(title="מחולל טפסים API")
     app.state.store = WorkspaceStore()
     app.state.jobs = JobManager()

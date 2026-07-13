@@ -1,3 +1,12 @@
+# --- stage 1: build the React SPA -> static files ---
+FROM node:22-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci || npm install
+COPY frontend/ ./
+RUN npm run build
+
+# --- stage 2: python app (serves the API + the built SPA) ---
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -19,8 +28,9 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-COPY .streamlit ./.streamlit
+# The compiled SPA (served as static files by FastAPI at "/").
+COPY --from=frontend /frontend/dist ./frontend/dist
 
 EXPOSE 8501
-CMD ["uv", "run", "streamlit", "run", "src/doc2tests/ui/app.py", \
-     "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+CMD ["uv", "run", "uvicorn", "doc2tests.api:app", \
+     "--host", "0.0.0.0", "--port", "8501"]

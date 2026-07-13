@@ -32,24 +32,40 @@ file (image/pdf/word)
 
 Orchestration: `orchestrator/graph.py` (LangGraph, data-only — never renders images),
 `orchestrator/batch.py` (scale over many files + on-demand `render_variant`).
-UI: `ui/app.py` (Streamlit, RTL Hebrew). Persistence: `db/` (sources → generated images).
+API + UI: `api/` (FastAPI — JSON + SSE over the same stages; background jobs stream live
+status from the log buffer) serves `frontend/` (React SPA: Vite/TS/Tailwind, RTL Hebrew,
+single/batch/archive). Persistence: `db/` (sources → generated images).
 
 ## Commands
 
 ```bash
 # Everything runs on Docker (see "Docker" below) — this is the intended way to run.
-docker compose up --build           # postgres (db) + streamlit app on :8501
+docker compose up --build           # postgres (db) + FastAPI/React app on :8501
 
-# Dev checks (run before finishing any change — all three must pass):
-uv run pytest -q
+# Backend dev checks (run before finishing any change — all three must pass):
+uv run pytest -q --ignore=tests/orchestrator/test_live_e2e.py \
+                 --ignore=tests/extraction/test_live_openai.py   # skip PAID live tests
 uv run mypy src                     # strict
 uv run ruff check src tests
 uv run ruff check --fix src tests   # autofix (imports, etc.)
 
 uv add <pkg>                        # add a dependency (updates uv.lock)
+
+# Frontend (React SPA in frontend/):
+cd frontend && npm install
+npm run dev      # Vite dev server; proxies /api -> uvicorn on :8501
+npm run build    # tsc typecheck + vite build -> frontend/dist (served by FastAPI)
+npm run test     # vitest
+
+# Run the API alone (dev, without Docker): uv run uvicorn doc2tests.api:app --port 8501
 ```
 
 Run tests for one area: `uv run pytest tests/generate -q`.
+
+**Live tests cost money.** `tests/conftest.py` loads `.env`, so `tests/extraction/
+test_live_openai.py` and `tests/orchestrator/test_live_e2e.py` make REAL OpenAI calls
+when `OPENAI_API_KEY` is set — the latter even renders a paid gpt-image-2 image. Exclude
+both in the dev loop (see the pytest command above).
 
 ## Conventions
 
@@ -93,8 +109,9 @@ comes from `.env` via `env_file`. Volume `pgdata` persists the archive.
 
 `ingest/` rasterize + grounded extract · `deid/` detect + classify · `generate/` data ·
 `imagegen/` image edit · `orchestrator/` graph + batch + config · `providers/` OpenAI/Ollama ·
-`contracts/` Pydantic state/enums · `db/` models + repo · `ui/` Streamlit · `validators/`
-Israeli validators · `common/` logging/json/slug.
+`contracts/` Pydantic state/enums · `db/` models + repo · `api/` FastAPI (jobs/SSE, routes,
+workspace) · `frontend/` React SPA · `ui/helpers.py` (records→rows, zip; reused by the API) ·
+`validators/` Israeli validators · `common/` logging/json/slug.
 
 Note: `coverage/`, `render/`, `schema/`, `template/` are legacy from the pre-pivot design
 and are not part of the image-edit pipeline — prefer the modules above.
