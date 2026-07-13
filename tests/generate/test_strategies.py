@@ -18,6 +18,20 @@ def test_free_text_strategy_returns_nonempty():
     assert strategy_for(FieldType.free_text, rng).generate().strip()
 
 
+def test_address_strategy_returns_single_line_nonempty():
+    rng = random.Random(1)
+    v = strategy_for(FieldType.address, rng).generate()
+    assert v.strip() and "\n" not in v
+
+
+def test_number_strategy_matches_original_digit_count():
+    rng = random.Random(1)
+    strat = strategy_for(FieldType.assessment_number, rng)
+    for original in ["009007", "0012", "119128627"]:
+        out = strat.generate(original)
+        assert len(out) == len(original) and out.isdigit()
+
+
 def test_deterministic_with_same_seed():
     a = strategy_for(FieldType.israeli_id, random.Random(1)).generate()
     b = strategy_for(FieldType.israeli_id, random.Random(1)).generate()

@@ -43,12 +43,17 @@ def test_extraction_to_valid_population_chain():
         state = _apply(state, ingest_parse(state, provider))
     state = _apply(state, detect_fields(state))
 
+    # every filled value is personal now: id, name, AND the city (address)
     personal = [d for d in state.detected if d.is_personal]
-    assert {d.field_type for d in personal} == {FieldType.israeli_id, FieldType.hebrew_name}
+    assert len(personal) == 3
+    assert {FieldType.israeli_id, FieldType.hebrew_name, FieldType.address} == {
+        d.field_type for d in personal}
 
     state = _apply(state, generate_population(state))
     assert len(state.population) == 5
     for rec in state.population:
+        # every personal field got a generated value
+        assert set(rec.values) == {d.id for d in personal}
         idv = rec.values[next(d.id for d in personal
                               if d.field_type == FieldType.israeli_id)]
         assert validate(FieldType.israeli_id, idv.value) is True

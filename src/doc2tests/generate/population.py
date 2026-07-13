@@ -13,13 +13,15 @@ _log = get_logger("generate")
 
 
 def _valid_value(field: DetectedValue, rng: random.Random, attempts: int = 8) -> str:
-    """Generate a value that passes its validator (belt-and-suspenders retry)."""
+    """Generate a value that passes its validator (belt-and-suspenders retry).
+    The original value is passed as ``like`` so shape-aware strategies (numbers,
+    dates) can match its digit-count / separators."""
     strat = strategy_for(field.field_type, rng)
-    v = strat.generate()
+    v = strat.generate(field.value)
     for _ in range(attempts):
         if validate(field.field_type, v):
             return v
-        v = strat.generate()
+        v = strat.generate(field.value)
     return v
 
 
