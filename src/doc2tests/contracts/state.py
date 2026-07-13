@@ -3,9 +3,9 @@ from __future__ import annotations
 from pydantic import BaseModel
 from pydantic import Field as PField
 
-from doc2tests.contracts.enums import FieldType, PiiType, SourceKind, TestClass, ValueKind
+from doc2tests.contracts.enums import FieldType, PiiType, SourceKind, ValueKind
 from doc2tests.contracts.records import Record
-from doc2tests.contracts.template import BBox, CanonicalTemplate
+from doc2tests.contracts.template import BBox
 
 
 class InputRef(BaseModel):
@@ -26,45 +26,23 @@ class ParseResult(BaseModel):
     provider: str = ""
 
 
-class DetectedField(BaseModel):
+class DetectedValue(BaseModel):
+    """A value found in the form, classified. Personal values get replaced."""
+    id: str
     label: str
     value: str
-    type: FieldType = FieldType.free_text
-    pii: bool = False
+    field_type: FieldType = FieldType.free_text
+    is_personal: bool = False
     pii_type: PiiType | None = None
     value_kind: ValueKind = ValueKind.printed
     bbox: BBox | None = None
 
 
-class FieldSchema(BaseModel):
-    # per-field inferred notes keyed by field id; relations live on the template
-    notes: dict[str, str] = PField(default_factory=dict)
-
-
 class ReviewDecision(BaseModel):
-    approved: bool
-    edits: dict[str, str] = PField(default_factory=dict)
-
-
-class CoverageCell(BaseModel):
-    field_id: str
-    test_class: TestClass
-    count: int
-
-
-class CoverageReport(BaseModel):
-    cells: list[CoverageCell] = PField(default_factory=list)
-    rules_exercised: list[str] = PField(default_factory=list)
-    gaps: list[str] = PField(default_factory=list)
-    total_records: int = 0
-    valid_records: int = 0                       # records whose every value is valid
-    unexpected_invalid: list[int] = PField(default_factory=list)  # should stay empty
-
-
-class RenderedDoc(BaseModel):
-    record_index: int
-    fmt: str
-    path: str
+    """What the user confirmed in the review gate: the final (possibly edited /
+    extended) set of detected values, replacing the machine detection."""
+    approved: bool = False
+    values: list[DetectedValue] = PField(default_factory=list)
 
 
 class StageError(BaseModel):
@@ -73,28 +51,19 @@ class StageError(BaseModel):
 
 
 class RunConfig(BaseModel):
-    n: int = 100
-    mix: dict[TestClass, float] = PField(
-        default_factory=lambda: {
-            TestClass.equivalence: 0.6,
-            TestClass.boundary: 0.25,
-            TestClass.negative: 0.15,
-        }
-    )
-    formats: list[str] = PField(default_factory=lambda: ["html", "docx"])
+    n: int = 10
     seed: int = 42
 
 
 class GraphState(BaseModel):
     input_ref: InputRef
     config: RunConfig = PField(default_factory=RunConfig)
+    page_images: list[bytes] = PField(default_factory=list)
     parse_result: ParseResult | None = None
-    detected_fields: list[DetectedField] = PField(default_factory=list)
-    template: CanonicalTemplate | None = None
-    field_schema: FieldSchema | None = None
-    layout_html: str | None = None       # faithful HTML recreation of the source
+    detected: list[DetectedValue] = PField(default_factory=list)
     review: ReviewDecision | None = None
     population: list[Record] = PField(default_factory=list)
-    coverage: CoverageReport | None = None
-    outputs: list[RenderedDoc] = PField(default_factory=list)
+    output_images: list[bytes] = PField(default_factory=list)
     errors: list[StageError] = PField(default_factory=list)
+
+    model_config = {"arbitrary_types_allowed": True}

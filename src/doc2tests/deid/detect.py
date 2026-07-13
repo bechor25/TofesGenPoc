@@ -2,18 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from doc2tests.contracts.state import DetectedField, GraphState
+from doc2tests.common.slug import unique_slug
+from doc2tests.contracts.state import DetectedValue, GraphState
 from doc2tests.deid.classify import classify_value
 
 
 def detect_fields(state: GraphState) -> dict[str, Any]:
     if state.parse_result is None:
-        return {"detected_fields": []}
-    detected: list[DetectedField] = []
+        return {"detected": []}
+    out: list[DetectedValue] = []
+    seen: list[str] = []
     for pf in state.parse_result.fields:
         ftype, pii, pii_type = classify_value(pf.label, pf.value)
-        detected.append(DetectedField(
-            label=pf.label, value=pf.value, type=ftype, pii=pii, pii_type=pii_type,
-            value_kind=pf.value_kind, bbox=pf.bbox,
+        fid = unique_slug(pf.label or pf.value or "field", seen)
+        seen.append(fid)
+        out.append(DetectedValue(
+            id=fid, label=pf.label, value=pf.value, field_type=ftype,
+            is_personal=pii, pii_type=pii_type, value_kind=pf.value_kind, bbox=pf.bbox,
         ))
-    return {"detected_fields": detected}
+    return {"detected": out}

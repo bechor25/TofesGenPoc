@@ -2,44 +2,23 @@ import random
 
 from doc2tests.contracts.enums import FieldType
 from doc2tests.generate.strategies import strategy_for
-from doc2tests.validators import is_valid_il_date, is_valid_israeli_id
+from doc2tests.validators import validate
 
 
-def _rng():
-    return random.Random(42)
+def test_every_typed_strategy_generates_a_valid_value():
+    rng = random.Random(1)
+    for ft in [FieldType.israeli_id, FieldType.date, FieldType.phone,
+               FieldType.bank_branch, FieldType.gush_helka]:
+        v = strategy_for(ft, rng).generate()
+        assert validate(ft, v) is True, (ft, v)
 
 
-def test_israeli_id_equivalence_is_valid():
-    s = strategy_for(FieldType.israeli_id, _rng())
-    assert is_valid_israeli_id(s.equivalence())
-
-
-def test_israeli_id_negative_is_invalid():
-    s = strategy_for(FieldType.israeli_id, _rng())
-    assert any(not is_valid_israeli_id(v) for v in s.negative())
-
-
-def test_date_equivalence_is_valid():
-    s = strategy_for(FieldType.date, _rng())
-    assert is_valid_il_date(s.equivalence())
-
-
-def test_date_negative_has_impossible_value():
-    s = strategy_for(FieldType.date, _rng())
-    assert any(not is_valid_il_date(v) for v in s.negative())
-
-
-def test_hebrew_name_equivalence_nonempty():
-    s = strategy_for(FieldType.hebrew_name, _rng())
-    assert s.equivalence().strip()
+def test_free_text_strategy_returns_nonempty():
+    rng = random.Random(1)
+    assert strategy_for(FieldType.free_text, rng).generate().strip()
 
 
 def test_deterministic_with_same_seed():
-    a = strategy_for(FieldType.israeli_id, random.Random(1)).equivalence()
-    b = strategy_for(FieldType.israeli_id, random.Random(1)).equivalence()
+    a = strategy_for(FieldType.israeli_id, random.Random(1)).generate()
+    b = strategy_for(FieldType.israeli_id, random.Random(1)).generate()
     assert a == b
-
-
-def test_unknown_type_falls_back_to_free_text():
-    s = strategy_for(FieldType.free_text, _rng())
-    assert isinstance(s.equivalence(), str)

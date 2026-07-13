@@ -1,344 +1,188 @@
-"""Streamlit UI — end-to-end: upload document -> extract canonical template
--> human review gate -> generate QA population -> render filled documents.
-Also exposes the blank template (source of truth) and filling it with your own data.
+"""Streamlit UI for the image-edit pipeline (RTL, Hebrew).
 
-Run with:  uv run streamlit run src/doc2tests/ui/app.py
+Flow: upload form -> detect values -> review/add/pick N -> generate valid variants
+-> gpt-image-2 edits the original per variant -> download images.
+Run: uv run streamlit run src/doc2tests/ui/app.py
 """
 from __future__ import annotations
 
-import json
 import os
-from collections import Counter
+import tempfile
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 from dotenv import load_dotenv
 
 from doc2tests.common.logging import recent_logs
-from doc2tests.contracts.enums import SourceKind
+from doc2tests.contracts.enums import FieldType, SourceKind
 from doc2tests.contracts.records import Record
-from doc2tests.contracts.state import GraphState, InputRef, RunConfig
-from doc2tests.contracts.template import CanonicalTemplate
-from doc2tests.ingest.loaders import detect_kind, load_images
-from doc2tests.orchestrator.config import build_vision_provider
-from doc2tests.orchestrator.graph import build_graph
-from doc2tests.render.canonical import (
-    dataset_csv,
-    dataset_json,
-    records_from_rows,
-    render_blank_docx,
-    render_blank_html,
-    template_json,
+from doc2tests.contracts.state import (
+    DetectedValue,
+    GraphState,
+    InputRef,
+    ReviewDecision,
 )
-from doc2tests.render.docx import render_docx
-from doc2tests.render.html import render_html
-from doc2tests.render.layout import fill_layout
+from doc2tests.ingest.loaders import detect_kind
+from doc2tests.orchestrator.config import build_provider
+from doc2tests.orchestrator.graph import build_graph
+from doc2tests.ui.helpers import records_to_rows, zip_images
 
 load_dotenv()
 
-OUTPUT_ROOT = Path("output")
-st.set_page_config(page_title="doc2tests", page_icon="📄", layout="wide")
+st.set_page_config(page_title="מחולל טפסים", layout="wide")
+st.markdown(
+    "<style>body,.stApp{direction:rtl;text-align:right}"
+    ".stDataFrame,.stDataEditor{direction:rtl}</style>", unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-  .stApp { direction: rtl; }
-  .stApp, .stMarkdown, .stMarkdown p, label, h1, h2, h3, .stMetricLabel { text-align: right; }
-  section[data-testid="stSidebar"] { direction: rtl; text-align: right; }
-  h1, h2, h3 { font-family: 'Assistant','Segoe UI',Arial,sans-serif; }
-  .stButton>button { background: linear-gradient(135deg,#2b5cb8,#3a6fd0); color:#fff;
-     border:0; border-radius:10px; padding:.5rem 1.2rem; font-weight:600; }
-  .stButton>button:hover { filter:brightness(1.08); }
-  .stDownloadButton>button { border-radius:9px; }
-  div[data-testid="stMetric"] { background:#f4f7fc; border:1px solid #e6e8ee;
-     border-radius:12px; padding:12px 16px; }
-  .hint { color:#6b7280; font-size:.85rem; }
-  .stepper { display:flex; flex-direction:row-reverse; justify-content:space-between;
-     align-items:flex-start; margin:8px 0 22px; gap:6px; }
-  .step { flex:1; text-align:center; position:relative; }
-  .step .dot { width:34px; height:34px; border-radius:50%; margin:0 auto 6px;
-     display:flex; align-items:center; justify-content:center; font-weight:700;
-     background:#e6e8ee; color:#8a93a3; border:2px solid #e6e8ee; }
-  .step .lbl { font-size:.8rem; color:#8a93a3; }
-  .step.done .dot { background:#cfe0f8; color:#2b5cb8; border-color:#cfe0f8; }
-  .step.active .dot { background:linear-gradient(135deg,#2b5cb8,#3a6fd0); color:#fff;
-     border-color:#2b5cb8; box-shadow:0 4px 12px rgba(43,92,184,.35); }
-  .step.active .lbl { color:#1a2233; font-weight:700; }
-  .step:not(:first-child)::after { content:""; position:absolute; top:17px; right:50%;
-     width:100%; height:2px; background:#e6e8ee; z-index:-1; }
-  .step.done:not(:first-child)::after, .step.active:not(:first-child)::after {
-     background:#cfe0f8; }
-</style>
-""", unsafe_allow_html=True)
+_STEPS = ["העלאה", "זיהוי ערכים", "סקירה ואישור", "יצירה ומילוי", "הורדה"]
 
 
 def _stepper(active: int) -> None:
-    steps = ["העלאה", "חילוץ ושחזור", "סקירה ואישור", "יצירה ומילוי"]
-    html = ['<div class="stepper">']
-    for i, label in enumerate(steps, 1):
-        cls = "active" if i == active else ("done" if i < active else "")
-        mark = "✓" if i < active else str(i)
-        html.append(f'<div class="step {cls}"><div class="dot">{mark}</div>'
-                    f'<div class="lbl">{label}</div></div>')
-    html.append("</div>")
-    st.markdown("".join(html), unsafe_allow_html=True)
-
-st.title("📄 doc2tests — מסמך → אוכלוסיית בדיקות")
-st.markdown(
-    '<div class="hint">חילוץ טמפלייט קנוני מכל מסמך, יצירת דאטת בדיקות, ומילוי מסמכים.</div>',
-    unsafe_allow_html=True,
-)
+    cols = st.columns(len(_STEPS))
+    for i, (c, name) in enumerate(zip(cols, _STEPS, strict=True)):
+        mark = "✅" if i < active else ("🔵" if i == active else "⚪")
+        c.markdown(f"{mark} **{name}**")
 
 
-def _reset() -> None:
-    for k in ("graph", "thread_id", "phase", "template", "out_dir", "final", "errors"):
-        st.session_state.pop(k, None)
+def _save_upload(uploaded: Any) -> str:
+    suffix = Path(uploaded.name).suffix
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as f:
+        f.write(uploaded.getbuffer())
+    return path
 
 
-def _download_row(template: CanonicalTemplate, out_dir: Path) -> None:
-    """Blank-template artifacts: HTML preview + HTML/DOCX/JSON downloads."""
-    with st.expander("📄 המסמך כטמפלייט — ללא ערכים (מקור האמת)", expanded=False):
-        blank_html = render_blank_html(template)
-        st.components.v1.html(blank_html, height=300, scrolling=True)
-        blank_docx_path = out_dir / "template.docx"
-        render_blank_docx(template, str(blank_docx_path))
-        c1, c2, c3 = st.columns(3)
-        c1.download_button("⬇ טמפלייט HTML", blank_html, file_name="template.html",
-                           mime="text/html")
-        c2.download_button("⬇ טמפלייט DOCX (docxtpl)", blank_docx_path.read_bytes(),
-                           file_name="template.docx")
-        c3.download_button("⬇ טמפלייט JSON", template_json(template),
-                           file_name="template.json", mime="application/json")
-        st.markdown('<div class="hint">ה-DOCX מכיל <code>{{ placeholders }}</code> '
-                    'וניתן למילוי חוזר עם כל דאטה.</div>', unsafe_allow_html=True)
+def _thread_cfg() -> dict[str, Any]:
+    return {"configurable": {"thread_id": st.session_state["thread_id"]}}
 
 
-def _layout_section(template: CanonicalTemplate, record: Record | None = None) -> None:
-    """The faithful digital RECREATION of the source document (same design),
-    empty as a template or filled with a record. Available for image/PDF sources."""
-    layout = st.session_state.get("layout_html")
-    if not layout:
+def main() -> None:
+    st.title("מחולל טפסים — החלפת ערכים בתמונה")
+    if "phase" not in st.session_state:
+        st.session_state["phase"] = "upload"
+
+    phase = st.session_state["phase"]
+    _stepper({"upload": 0, "review": 2, "done": 4}[phase])
+
+    if not os.getenv("OPENAI_API_KEY"):
+        st.error("חסר OPENAI_API_KEY בקובץ .env")
         return
-    if record is None:
-        values = {f.id: "" for f in template.fields}          # clear all slots
-    else:
-        values = {f.id: "" for f in template.fields}
-        values.update({fid: v.value for fid, v in record.values.items()})
-    html = fill_layout(layout, values)
-    title = ("🎯 טמפלייט משוחזר — עיצוב זהה למקור, ללא ערכים" if record is None
-             else "🎯 מסמך ממולא — עיצוב זהה למקור")
-    with st.expander(title, expanded=True):
-        st.components.v1.html(html, height=620, scrolling=True)
-        fname = "template.html" if record is None else "filled.html"
-        st.download_button(f"⬇ {fname}", html, file_name=fname, mime="text/html",
-                           key=f"lay_{fname}_{record.index if record else 'blank'}")
-        st.markdown('<div class="hint">שוחזר ע"י המודל מתוך המסמך המקורי. '
-                    'ניתן להוריד ולמלא שוב ושוב עם כל דאטה.</div>', unsafe_allow_html=True)
+
+    if phase == "upload":
+        _upload_phase()
+    elif phase == "review":
+        _review_phase()
+    elif phase == "done":
+        _done_phase()
+
+    with st.sidebar.expander("לוגים", expanded=False):
+        st.code("\n".join(recent_logs(120)) or "—")
 
 
-def _custom_fill_section(template: CanonicalTemplate, out_dir: Path) -> None:
-    """Fill the template with the user's OWN test data."""
-    with st.expander("✍️ מלא את הטמפלייט בנתונים שלך", expanded=False):
-        field_ids = [f.id for f in template.fields]
-        example = json.dumps([{fid: "" for fid in field_ids}], ensure_ascii=False, indent=2)
-        st.markdown('<div class="hint">הדבק מערך JSON של רשומות (מפתח = מזהה שדה). '
-                    'שדות זמינים: ' + ", ".join(f"<code>{f}</code>" for f in field_ids)
-                    + "</div>", unsafe_allow_html=True)
-        raw = st.text_area("רשומות JSON", value=example, height=160, key="custom_json")
-        if st.button("מלא מסמכים מהנתונים שלי ▶"):
-            try:
-                rows = json.loads(raw)
-                assert isinstance(rows, list)
-            except (json.JSONDecodeError, AssertionError):
-                st.error("JSON לא תקין — נדרש מערך של אובייקטים.")
-                return
-            recs = records_from_rows(template, rows)
-            custom_dir = out_dir / "custom"
-            custom_dir.mkdir(parents=True, exist_ok=True)
-            layout = st.session_state.get("layout_html")
-            st.success(f"מולאו {len(recs)} מסמכים " +
-                       ("על הטמפלייט המשוחזר (עיצוב זהה)." if layout
-                        else "(תצוגת טבלה — אין טמפלייט משוחזר)."))
-            for r in recs:
-                values = {f.id: "" for f in template.fields}
-                values.update({fid: v.value for fid, v in r.values.items()})
-                html = fill_layout(layout, values) if layout else render_html(template, r)
-                docx_path = custom_dir / f"custom_{r.index:03d}.docx"
-                render_docx(template, r, str(docx_path))
-                st.components.v1.html(html, height=620 if layout else 260, scrolling=True)
-                d1, d2 = st.columns(2)
-                d1.download_button(f"⬇ HTML #{r.index}", html,
-                                   file_name=f"custom_{r.index}.html", mime="text/html",
-                                   key=f"ch_{r.index}")
-                d2.download_button(f"⬇ DOCX #{r.index}", docx_path.read_bytes(),
-                                   file_name=f"custom_{r.index}.docx", key=f"cd_{r.index}")
-
-
-# ------------------------------------------------------------------ sidebar
-with st.sidebar:
-    st.header("⚙️ הגדרות")
-    n = st.number_input("גודל אוכלוסייה (N)", min_value=1, max_value=500, value=20)
-    formats = st.multiselect("פורמטים", ["html", "docx"], default=["html", "docx"])
-    seed = st.number_input("seed", min_value=0, value=42)
-    if st.button("🔄 איפוס"):
-        _reset()
+def _upload_phase() -> None:
+    uploaded = st.file_uploader("העלה טופס", type=["jpg", "jpeg", "png", "pdf", "docx"])
+    if uploaded and st.button("זהה ערכים", type="primary"):
+        path = _save_upload(uploaded)
+        st.session_state["thread_id"] = uploaded.name
+        app = build_graph(build_provider())
+        init = GraphState(
+            input_ref=InputRef(path=path, kind=SourceKind(detect_kind(path))))
+        with st.spinner("מזהה ערכים..."):
+            app.invoke(init, _thread_cfg())
+        st.session_state["app"] = app
+        snap = app.get_state(_thread_cfg())
+        st.session_state["detected"] = [d.model_dump() for d in snap.values["detected"]]
+        st.session_state["page_images"] = snap.values["page_images"]
+        st.session_state["phase"] = "review"
         st.rerun()
-    with st.expander("🧾 לוגים", expanded=False):
-        logs = recent_logs(60)
-        st.code("\n".join(logs) if logs else "אין לוגים עדיין.", language="log")
 
-if not os.getenv("OPENAI_API_KEY"):
-    st.error("חסר OPENAI_API_KEY בקובץ .env — נדרש לשלב החילוץ (vision).")
-    st.stop()
 
-phase = st.session_state.get("phase", "start")
-_stepper({"start": 1, "review": 3, "done": 4}.get(phase, 1))
+def _review_phase() -> None:
+    imgs = st.session_state.get("page_images") or []
+    if imgs:
+        st.image(imgs[0], caption="הטופס שנקלט", width=380)
 
-# ------------------------------------------------------------------ start
-if phase == "start":
-    st.subheader("1 · העלאת מסמך")
-    uploaded = st.file_uploader("צילום / סריקה / PDF / Word של טופס (כתב-יד או מודפס)",
-                                type=["jpg", "jpeg", "png", "pdf", "docx"])
-    if uploaded is not None:
-        suffix = Path(uploaded.name).suffix.lower()
-        if suffix in (".jpg", ".jpeg", ".png"):
-            st.image(uploaded, caption="המסמך שהועלה", width=380)
-        else:
-            st.info(f"📎 {uploaded.name}")
-        if st.button("חלץ טמפלייט ▶", type="primary"):
-            thread_id = f"ui-{abs(hash(uploaded.name)) % 100000}"
-            out_dir = OUTPUT_ROOT / thread_id
-            out_dir.mkdir(parents=True, exist_ok=True)
-            input_path = out_dir / f"input{suffix}"
-            input_path.write_bytes(uploaded.getvalue())
-            kind = SourceKind(detect_kind(str(input_path)))
-            # background image for the exact-layout overlay
-            bg_bytes: bytes | None
-            if suffix in (".jpg", ".jpeg", ".png"):
-                bg_bytes = uploaded.getvalue()
-                bg_mime = "image/png" if suffix == ".png" else "image/jpeg"
-            elif suffix == ".pdf":
-                imgs = load_images(str(input_path))
-                bg_bytes = imgs[0] if imgs else None
-                bg_mime = "image/png"
-            else:
-                bg_bytes, bg_mime = None, "image/jpeg"
-            with st.spinner("מחלץ שדות + קואורדינטות (vision + OCR מקומי)..."):
-                graph = build_graph(build_vision_provider(), str(out_dir))
-                config = {"configurable": {"thread_id": thread_id}}
-                graph.invoke(GraphState(
-                    input_ref=InputRef(path=str(input_path), kind=kind),
-                    config=RunConfig(n=int(n), seed=int(seed), formats=list(formats)),
-                ), config)
-                snap = graph.get_state(config)
-            st.session_state.update(
-                graph=graph, thread_id=thread_id, out_dir=str(out_dir),
-                template=snap.values["template"], errors=snap.values.get("errors", []),
-                layout_html=snap.values.get("layout_html"),
-                bg_bytes=bg_bytes, bg_mime=bg_mime, phase="review",
-            )
-            st.rerun()
+    st.subheader("ערכים שזוהו — אשר, ערוך, או הוסף")
+    st.caption("סמן 'אישי?' לכל ערך שיש להחליף. הוסף שורות לערכים שלא זוהו.")
+    rows = [
+        {"label": d["label"], "value": d["value"],
+         "field_type": d["field_type"], "אישי?": d["is_personal"]}
+        for d in st.session_state["detected"]
+    ]
+    edited = st.data_editor(
+        rows, num_rows="dynamic", use_container_width=True,
+        column_config={
+            "field_type": st.column_config.SelectboxColumn(
+                "סוג", options=[t.value for t in FieldType]),
+            "אישי?": st.column_config.CheckboxColumn("אישי?"),
+        },
+    )
+    n = st.number_input("כמה וריאציות ליצור?", min_value=1, max_value=50, value=10)
 
-# ------------------------------------------------------------------ review
-elif phase == "review":
-    st.subheader("2 · שער סקירה — אישור / עריכת הטמפלייט")
-    template = st.session_state["template"]
-    out_dir = Path(st.session_state["out_dir"])
-    if st.session_state.get("errors"):
-        st.warning("שגיאות בחילוץ: " + "; ".join(e.message for e in st.session_state["errors"]))
-    st.caption(f"סוג מסמך: {template.doc_type} · {len(template.fields)} שדות זוהו")
-
-    _layout_section(template)
-    _download_row(template, out_dir)
-
-    st.markdown("**שדות שזוהו** (ניתן לערוך תוויות):")
-    edits: dict[str, str] = {}
-    h1, h2, h3 = st.columns([3, 2, 1])
-    h1.caption("תווית")
-    h2.caption("טיפוס")
-    h3.caption("PII")
-    for f in template.fields:
-        c1, c2, c3 = st.columns([3, 2, 1])
-        new_label = c1.text_input(f.id, value=f.label, key=f"lbl_{f.id}",
-                                  label_visibility="collapsed")
-        c2.text_input("t", value=f.type.value, key=f"typ_{f.id}", disabled=True,
-                      label_visibility="collapsed")
-        c3.text_input("p", value="🔒" if f.pii else "—", key=f"pii_{f.id}", disabled=True,
-                      label_visibility="collapsed")
-        if new_label != f.label:
-            edits[f.id] = new_label
-
-    rels = [r for r in template.relations if r.kind == "order"]
-    if rels:
-        st.caption("יחסים: " + ", ".join(f"{r.left} {r.op.value} {r.right}" for r in rels))
-
-    if st.button("אשר וייצר אוכלוסייה ▶", type="primary"):
-        graph = st.session_state["graph"]
-        config = {"configurable": {"thread_id": st.session_state["thread_id"]}}
-        graph.update_state(config, {"review": {"approved": True, "edits": edits}})
-        with st.spinner("מייצר אוכלוסיית בדיקות ומרנדר מסמכים..."):
-            st.session_state["final"] = graph.invoke(None, config)
-        st.session_state["template"] = st.session_state["final"]["template"]
+    if st.button("צור טפסים", type="primary"):
+        from doc2tests.common.slug import unique_slug
+        values: list[DetectedValue] = []
+        seen: list[str] = []
+        for r in edited:
+            label = str(r.get("label", "")).strip()
+            val = str(r.get("value", "")).strip()
+            if not label and not val:
+                continue
+            fid = unique_slug(label or val, seen)
+            seen.append(fid)
+            values.append(DetectedValue(
+                id=fid, label=label, value=val,
+                field_type=FieldType(r.get("field_type") or "free_text"),
+                is_personal=bool(r.get("אישי?")),
+            ))
+        app = st.session_state["app"]
+        cfg = _thread_cfg()
+        app.update_state(cfg, {
+            "review": ReviewDecision(approved=True, values=values),
+            "config": {"n": int(n), "seed": 42},
+        })
+        with st.spinner(f"מייצר {int(n)} טפסים..."):
+            final = app.invoke(None, cfg)
+        st.session_state["population"] = [
+            (p if isinstance(p, Record) else Record(**p)).model_dump()
+            for p in final["population"]
+        ]
+        st.session_state["output_images"] = final["output_images"]
+        st.session_state["errors"] = [e.message for e in final.get("errors", [])]
         st.session_state["phase"] = "done"
         st.rerun()
 
-# ------------------------------------------------------------------ done
-elif phase == "done":
-    st.subheader("3 · תוצאות")
-    final = st.session_state["final"]
-    template = final["template"]
-    population, coverage, outputs = final["population"], final["coverage"], final["outputs"]
-    out_dir = Path(st.session_state["out_dir"])
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("רשומות", len(population))
-    c2.metric("מסמכים", len(outputs))
-    c3.metric("כללים שנבדקו", len(coverage.rules_exercised) if coverage else 0)
-    if coverage and coverage.total_records:
-        pct = 100 * coverage.valid_records // coverage.total_records
-        c4.metric("רשומות תקינות", f"{coverage.valid_records}/{coverage.total_records}",
-                  f"{pct}%")
-    if coverage and coverage.unexpected_invalid:
-        st.error("⚠️ רשומות שסומנו תקינות אך נכשלו בוולידציה: "
-                 + str(coverage.unexpected_invalid))
+def _done_phase() -> None:
+    imgs = st.session_state.get("output_images") or []
+    errs = st.session_state.get("errors") or []
+    st.success(f"נוצרו {len(imgs)} טפסים.")
+    if errs:
+        st.warning(f"{len(errs)} כשלו: " + "; ".join(errs[:3]))
 
-    dist = Counter(r.test_class.value for r in population)
-    st.markdown("**התפלגות מחלקות בדיקה:** " +
-                " · ".join(f"{k}: {v}" for k, v in dist.items()))
-    if coverage and coverage.rules_exercised:
-        st.markdown("**כללים שהופעלו:** " + ", ".join(coverage.rules_exercised))
-    if coverage and coverage.gaps:
-        st.markdown("**פערי כיסוי:** " + "; ".join(coverage.gaps))
+    recs = [Record(**p) for p in st.session_state.get("population", [])]
+    if recs:
+        with st.expander("הערכים שנוצרו (מאומתים)"):
+            st.dataframe(records_to_rows(recs), use_container_width=True)
 
-    _layout_section(template, population[0] if population else None)
-    _download_row(template, out_dir)
+    if imgs:
+        st.download_button("הורד הכל (zip)", zip_images(imgs),
+                           file_name="forms.zip", mime="application/zip")
+        cols = st.columns(3)
+        for i, img in enumerate(imgs):
+            c = cols[i % 3]
+            c.image(img, caption=f"טופס {i + 1}", use_container_width=True)
+            c.download_button("הורד", img, file_name=f"form_{i + 1}.png",
+                              mime="image/png", key=f"dl_{i}")
 
-    st.markdown("**⬇ ייצוא dataset:**")
-    d1, d2 = st.columns(2)
-    d1.download_button("dataset JSON", dataset_json(population),
-                       file_name="dataset.json", mime="application/json")
-    d2.download_button("dataset CSV", dataset_csv(template, population),
-                       file_name="dataset.csv", mime="text/csv")
-
-    st.markdown("**רשומות (10 ראשונות):**")
-    st.dataframe([
-        {"#": r.index, "class": r.test_class.value, "valid": r.expected_valid,
-         "violates": r.violates or "", **{fid: v.value for fid, v in r.values.items()}}
-        for r in population[:10]
-    ], use_container_width=True)
-
-    with st.expander("📊 גרסת טבלת-נתונים (לא הטמפלייט) + הורדות", expanded=False):
-        st.caption("תצוגה מובנית לנוחות בדיקה. הטמפלייט המדויק הוא ה-overlay למעלה 🎯")
-        html_docs = [d for d in outputs if d.fmt == "html"]
-        if html_docs:
-            st.components.v1.html(Path(html_docs[0].path).read_text(encoding="utf-8"),
-                                  height=300, scrolling=True)
-        for d in outputs[:20]:
-            p = Path(d.path)
-            if p.exists():
-                st.download_button(f"⬇ {p.name}", p.read_bytes(), file_name=p.name, key=d.path)
-
-    _custom_fill_section(template, out_dir)
-
-    if st.button("🆕 הרצה חדשה"):
-        _reset()
+    if st.button("התחל מחדש"):
+        for k in ("phase", "app", "detected", "page_images", "population",
+                  "output_images", "errors", "thread_id"):
+            st.session_state.pop(k, None)
         st.rerun()
+
+
+if __name__ == "__main__":
+    main()
+main()

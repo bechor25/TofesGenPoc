@@ -10,9 +10,7 @@ from doc2tests.validators.israeli_id import complete_israeli_id
 
 
 class FieldStrategy(Protocol):
-    def equivalence(self) -> str: ...
-    def boundary(self) -> str: ...
-    def negative(self) -> list[str]: ...
+    def generate(self) -> str: ...
 
 
 class _Base:
@@ -21,33 +19,37 @@ class _Base:
 
 
 class IsraeliIdStrategy(_Base):
-    def equivalence(self) -> str:
+    def generate(self) -> str:
         prefix = "".join(str(self.rng.randint(0, 9)) for _ in range(8))
         return complete_israeli_id(prefix)
 
-    def boundary(self) -> str:
-        # valid id that starts with a zero (leading-zero handling)
-        prefix = "0" + "".join(str(self.rng.randint(0, 9)) for _ in range(7))
-        return complete_israeli_id(prefix)
-
-    def negative(self) -> list[str]:
-        good = self.equivalence()
-        bad_checksum = good[:-1] + str((int(good[-1]) + 1) % 10)
-        return [bad_checksum, good[:8], good + "0"]  # wrong checksum, too short, too long
-
 
 class DateStrategy(_Base):
-    def equivalence(self) -> str:
+    def generate(self) -> str:
         d = self.rng.randint(1, 28)
         m = self.rng.randint(1, 12)
-        y = self.rng.randint(2000, 2024)
+        y = self.rng.randint(1960, 2024)
         return f"{d:02d}.{m:02d}.{y}"
 
-    def boundary(self) -> str:
-        return "29.02.2020"  # leap day
 
-    def negative(self) -> list[str]:
-        return ["31.02.2021", "00.13.2020"]
+class PhoneStrategy(_Base):
+    def generate(self) -> str:
+        return "05" + "".join(str(self.rng.randint(0, 9)) for _ in range(8))
+
+
+class BankBranchStrategy(_Base):
+    def generate(self) -> str:
+        return f"{self.rng.randint(100, 999)}"
+
+
+class GushHelkaStrategy(_Base):
+    def generate(self) -> str:
+        return f"{self.rng.randint(1000, 9999)}-{self.rng.randint(1, 999)}-0"
+
+
+class NumberStrategy(_Base):
+    def generate(self) -> str:
+        return "".join(str(self.rng.randint(0, 9)) for _ in range(9))
 
 
 class _FakerStrategy(_Base):
@@ -59,69 +61,13 @@ class _FakerStrategy(_Base):
 
 
 class HebrewNameStrategy(_FakerStrategy):
-    def equivalence(self) -> str:
+    def generate(self) -> str:
         return str(self._faker.name())
-
-    def boundary(self) -> str:
-        return "א"  # single character
-
-    def negative(self) -> list[str]:
-        return ["", "123"]  # empty, digits-only
-
-
-class PhoneStrategy(_Base):
-    def equivalence(self) -> str:
-        return "05" + "".join(str(self.rng.randint(0, 9)) for _ in range(8))
-
-    def boundary(self) -> str:
-        return "0" + "".join(str(self.rng.randint(0, 9)) for _ in range(8))  # 9-digit landline
-
-    def negative(self) -> list[str]:
-        return ["123", "0" + "0" * 11]
-
-
-class BankBranchStrategy(_Base):
-    def equivalence(self) -> str:
-        return f"{self.rng.randint(100, 999)}"
-
-    def boundary(self) -> str:
-        return f"{self.rng.randint(1, 9)}"
-
-    def negative(self) -> list[str]:
-        return ["12X", "1234"]
-
-
-class GushHelkaStrategy(_Base):
-    def equivalence(self) -> str:
-        return f"{self.rng.randint(1000, 9999)}-{self.rng.randint(1, 999)}-0"
-
-    def boundary(self) -> str:
-        return f"{self.rng.randint(1, 9)}-1"
-
-    def negative(self) -> list[str]:
-        return ["9007", "gush-12"]
-
-
-class NumberStrategy(_Base):
-    def equivalence(self) -> str:
-        return "".join(str(self.rng.randint(0, 9)) for _ in range(9))
-
-    def boundary(self) -> str:
-        return "0"
-
-    def negative(self) -> list[str]:
-        return ["not-a-number"]
 
 
 class FreeTextStrategy(_FakerStrategy):
-    def equivalence(self) -> str:
-        return str(self._faker.sentence(nb_words=4))
-
-    def boundary(self) -> str:
-        return "א" * 200  # long string / RTL stress
-
-    def negative(self) -> list[str]:
-        return [""]
+    def generate(self) -> str:
+        return str(self._faker.sentence(nb_words=3))
 
 
 _REGISTRY: dict[FieldType, type[_Base]] = {

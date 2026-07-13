@@ -7,7 +7,7 @@ from doc2tests.common.logging import get_logger
 from doc2tests.contracts.enums import ValueKind
 from doc2tests.contracts.state import GraphState, ParsedField, ParseResult, StageError
 from doc2tests.contracts.template import BBox
-from doc2tests.ingest.loaders import detect_kind, load_images, read_docx_text
+from doc2tests.ingest.rasterize import rasterize
 from doc2tests.providers.base import LLMProvider
 
 _log = get_logger("ingest")
@@ -40,11 +40,6 @@ VISION_PROMPT = (
     "(x,y = top-right of the value region for RTL); accuracy of transcription matters "
     "more than the bbox. " + _SCHEMA
 )
-TEXT_PROMPT = (
-    "You are a document parser. Below is the text of a Hebrew form/document. "
-    "Identify its labelled fields and their values. " + _COMPLETENESS + _SCHEMA
-    + "\n\nDOCUMENT TEXT:\n"
-)
 
 
 def _bbox(raw: dict[str, Any] | None) -> BBox | None:
@@ -64,30 +59,26 @@ def _parse_fields(text: str) -> tuple[str, list[ParsedField]]:
         kind = (ValueKind.handwritten if f.get("value_kind") == "handwritten"
                 else ValueKind.printed)
         fields.append(ParsedField(
-            label=str(f.get("label", "")),
-            value=str(f.get("value", "")),
-            value_kind=kind,
-            bbox=_bbox(f.get("bbox")),
+            label=str(f.get("label", "")), value=str(f.get("value", "")),
+            value_kind=kind, bbox=_bbox(f.get("bbox")),
         ))
     return str(data.get("raw_text", "")), fields
 
 
 def ingest_parse(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
-    """F1: route by input format.
-    image/pdf -> vision extraction; docx -> text-LLM extraction."""
+    """Rasterize any input to page images, then vision-extract its fields."""
     path = state.input_ref.path
-    kind = detect_kind(path)
     try:
-        if kind == "docx":
-            text = read_docx_text(path)
-            resp = provider.complete_text(TEXT_PROMPT + text, json_mode=True)
-        else:  # image or pdf (rendered to page images)
-            images = load_images(path)
-            resp = provider.extract_vision(images, VISION_PROMPT, json_mode=True)
+        images = rasterize(path)
+        resp = provider.extract_vision(images, VISION_PROMPT, json_mode=True)
         raw_text, fields = _parse_fields(resp.text)
-        _log.info("ingest_parse: %s -> %d fields via %s", kind, len(fields), provider.name)
-        return {"parse_result": ParseResult(
-            raw_text=raw_text, fields=fields, provider=provider.name)}
+        _log.info("ingest_parse: %d page(s) -> %d fields via %s",
+                  len(images), len(fields), provider.name)
+        return {
+            "page_images": images,
+            "parse_result": ParseResult(
+                raw_text=raw_text, fields=fields, provider=provider.name),
+        }
     except Exception as exc:  # noqa: BLE001 - node boundary converts errors to state
         _log.exception("ingest_parse failed for %s", path)
         return {
