@@ -57,6 +57,28 @@ html, body, .stApp, [class*="css"]{ font-family:'Heebo',-apple-system,'Segoe UI'
 [data-testid="stHeader"]{ background:transparent; }
 .block-container{ padding-top:2.2rem; max-width:1200px; }
 
+/* ---- RTL: force right-to-left across Streamlit's nested containers ---- */
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"],
+.block-container, [data-testid="stVerticalBlock"], [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stMarkdownContainer"], [data-testid="stHeading"], [data-testid="stExpander"],
+[data-testid="stForm"], .stMarkdown, .stCaption{
+  direction:rtl!important; text-align:right!important;
+}
+/* columns flow right-to-left */
+[data-testid="stHorizontalBlock"]{ flex-direction:row-reverse; }
+/* radio options right-to-left */
+[data-testid="stRadio"] > div{ flex-direction:row-reverse; justify-content:flex-start; }
+/* inputs / selects / uploader text right-aligned */
+input, textarea, [data-baseweb="input"], [data-baseweb="select"],
+[data-testid="stFileUploaderDropzone"], [data-testid="stNumberInputContainer"]{
+  direction:rtl!important; text-align:right!important;
+}
+[data-testid="stFileUploaderDropzone"]{ flex-direction:row-reverse; }
+/* tables / dataframe RTL */
+[data-testid="stDataFrame"], [data-testid="stTable"], [data-testid="stDataEditor"]{
+  direction:rtl!important;
+}
+
 /* headings */
 h1{ font-weight:800; letter-spacing:-.02em; font-size:2.5rem; margin-bottom:.2rem; }
 h2,h3{ font-weight:600; letter-spacing:-.01em; }
@@ -377,4 +399,3 @@ def _render_batch_results(results: list[Any]) -> None:
 
 if __name__ == "__main__":
     main()
-main()
