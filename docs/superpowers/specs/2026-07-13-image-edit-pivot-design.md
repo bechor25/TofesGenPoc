@@ -6,7 +6,7 @@
 
 ## 1. Problem & Goal
 
-Take any Israeli form (photo / PDF / HTML / Word — medical, ביטוח לאומי, etc.),
+Take any Israeli form (photo / PDF / Word — medical, ביטוח לאומי, etc.),
 detect every personal value in it, and produce **N copies of the same image with the
 personal values replaced by newly generated, VALIDATED values** — pixel-faithful to the
 original design. The user reviews detected values, adds any that were missed, picks N,
@@ -40,7 +40,7 @@ relation-violation, coverage report) is removed.
 ## 4. Flow (6 stages)
 
 ```
-1. ingest        form (image/pdf/html/word) → page image(s) (PNG bytes)
+1. ingest        form (image/pdf/word) → page image(s) (PNG bytes)
 2. detect        vision model reads the image → list of DetectedValue
                  {label, value, value_kind, field_type, is_personal, bbox?}
 3. review gate   UI: show detected values; user confirms / edits / adds missed values,
@@ -81,13 +81,14 @@ One human-in-the-loop interrupt at stage 3 (LangGraph `interrupt_before`).
 - `contracts/` — slim down (see §7).
 
 ### New
-- `ingest/rasterize.py` — one image per input kind:
+- `ingest/rasterize.py` — one image per input kind (image, pdf, word — ALL first-class):
   - image → passthrough (PNG/JPEG bytes)
   - pdf → PyMuPDF render each page → PNG (already available)
-  - html → WeasyPrint → PDF → PyMuPDF → PNG
-  - docx/word → LibreOffice `soffice --headless --convert-to pdf` (if available) → PNG;
-    if soffice missing, raise a clear StageError telling the user to supply PDF/image.
-  Honest limitation: image + pdf are first-class; html + word depend on optional local tools.
+  - docx/word → LibreOffice `soffice --headless --convert-to pdf` → PyMuPDF → PNG.
+    `soffice` is verified installed (`/opt/homebrew/bin/soffice`). If absent at runtime,
+    raise a clear StageError naming the missing tool. Path is resolved via `shutil.which`
+    (fallback `/Applications/LibreOffice.app/Contents/MacOS/soffice`).
+  Input kinds are image, pdf, word — nothing else. (HTML is out of scope.)
 - `imagegen/edit.py` — `edit_form_image(original_png, replacements, provider, doc_hint) -> png`
   builds the strong prompt (§8) from the old→new replacement map and calls `provider.edit_image`.
 - `imagegen/__init__.py`.
@@ -148,8 +149,8 @@ System-style instruction embedded in the `prompt` (images.edit has no separate s
 - `validators/*` tests — unchanged, still the validity contract.
 - `generate/population` — new tests: exactly N records; every value passes `validate()`;
   deterministic by seed; date relations hold.
-- `ingest/rasterize` — image passthrough returns PNG; pdf renders ≥1 page; html path guarded
-  (skip if WeasyPrint missing); word path guarded (skip if soffice missing).
+- `ingest/rasterize` — image passthrough returns PNG; pdf renders ≥1 page; word path renders
+  via soffice (skipped only if soffice missing at test time); unknown kind → StageError.
 - `imagegen/edit` — prompt builder includes every replacement pair and the fidelity clause
   (pure-string test, no network). Provider `edit_image` mocked.
 - `providers/openai_provider` — `edit_image` calls `images.edit` with `model="gpt-image-2"`,
@@ -162,7 +163,7 @@ System-style instruction embedded in the `prompt` (images.edit has no separate s
 
 - Not pixel-perfect-guaranteed: fidelity depends on gpt-image-2; user evaluates visually.
   Masking is the escalation path if drift appears.
-- html/word rasterization needs optional local tools (WeasyPrint / LibreOffice).
+- word rasterization needs LibreOffice (`soffice`) — verified installed on this machine.
 - Name-level PII: detection drives replacement; anything the detector misses the user adds
   manually in the review gate (that gate is the completeness backstop).
 - Cost/time: N edit calls per run (~N × a few seconds + per-image cost). Sequential, logged.
