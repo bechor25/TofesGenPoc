@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -44,7 +45,7 @@ def _stepper(active: int) -> None:
         c.markdown(f"{mark} **{name}**")
 
 
-def _save_upload(uploaded) -> str:
+def _save_upload(uploaded: Any) -> str:
     suffix = Path(uploaded.name).suffix
     fd, path = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as f:
@@ -52,7 +53,7 @@ def _save_upload(uploaded) -> str:
     return path
 
 
-def _thread_cfg() -> dict:
+def _thread_cfg() -> dict[str, Any]:
     return {"configurable": {"thread_id": st.session_state["thread_id"]}}
 
 
