@@ -1,7 +1,22 @@
 from doc2tests.contracts.enums import FieldType, SourceKind
 from doc2tests.contracts.state import DetectedValue, GraphState, InputRef, RunConfig
 from doc2tests.generate.population import generate_population
+from doc2tests.providers.base import LLMResponse
 from doc2tests.validators import validate
+
+
+class _TextStub:
+    """Provider stub whose data agent returns realistic free-text variants."""
+    name = "stub"
+
+    def complete_text(self, prompt, *, system=None, json_mode=False):
+        return LLMResponse(text='{"fields":{"dx":["דלקת גרון","נזלת חריפה"]}}')
+
+    def extract_vision(self, *a, **k):
+        return LLMResponse(text="{}")
+
+    def edit_image(self, *a, **k):
+        return b""
 
 
 def _state(n):
@@ -68,3 +83,28 @@ def test_same_slot_shares_one_value_across_the_form():
         assert rec.values["a1"].value == rec.values["a1r"].value
         # a different slot (line 2) is its own value, not tied to line 1
         assert rec.values["a2"].value != rec.values["a1"].value
+
+
+def test_free_text_uses_data_agent_not_faker_gibberish():
+    # with a provider, free-text fields get realistic values from the data agent
+    st = GraphState(
+        input_ref=InputRef(path="x.jpeg", kind=SourceKind.image),
+        detected=[DetectedValue(id="dx", label="אבחנה", value="דלקת",
+                                field_type=FieldType.free_text, is_personal=True)],
+        config=RunConfig(n=2, seed=1),
+    )
+    vals = [r.values["dx"].value
+            for r in generate_population(st, _TextStub())["population"]]
+    assert vals == ["דלקת גרון", "נזלת חריפה"]
+
+
+def test_free_text_falls_back_to_local_without_provider():
+    # no provider -> local generation (never crashes), value is non-empty
+    st = GraphState(
+        input_ref=InputRef(path="x.jpeg", kind=SourceKind.image),
+        detected=[DetectedValue(id="dx", label="אבחנה", value="דלקת",
+                                field_type=FieldType.free_text, is_personal=True)],
+        config=RunConfig(n=2, seed=1),
+    )
+    for rec in generate_population(st)["population"]:
+        assert rec.values["dx"].value.strip()

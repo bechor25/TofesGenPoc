@@ -38,7 +38,8 @@ def build_graph(extract_provider: LLMProvider) -> Any:
     g.add_node("ingest_parse", lambda s: ingest_parse(s, extract_provider))
     g.add_node("detect_fields", detect_fields)
     g.add_node("review_gate", review_gate)
-    g.add_node("generate_population", generate_population)
+    g.add_node("generate_population",
+               lambda s: generate_population(s, extract_provider))
 
     g.add_edge(START, "ingest_parse")
     g.add_edge("ingest_parse", "detect_fields")

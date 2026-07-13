@@ -34,7 +34,7 @@ def process_document(
                         config=RunConfig(n=n, seed=seed))
         st = st.model_copy(update=ingest_parse(st, provider))
         st = st.model_copy(update=detect_fields(st))
-        st = st.model_copy(update=generate_population(st))
+        st = st.model_copy(update=generate_population(st, provider))
         err = st.errors[0].message if st.errors else None
         page = st.page_images[0] if st.page_images else None
         return DocumentResult(path=path, detected=st.detected,
