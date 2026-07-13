@@ -5,7 +5,7 @@ from typing import Any
 from doc2tests.common.logging import get_logger
 from doc2tests.contracts.state import GraphState, ParseResult, StageError
 from doc2tests.ingest.grounded import extract_grounded
-from doc2tests.ingest.rasterize import rasterize
+from doc2tests.ingest.rasterize import downscale_for_ocr, rasterize
 from doc2tests.providers.base import LLMProvider
 
 _log = get_logger("ingest")
@@ -13,11 +13,13 @@ _log = get_logger("ingest")
 
 def ingest_parse(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     """Rasterize any input to page images, then run the two-stage grounded
-    extraction (transcribe -> structure) to get label/value fields."""
+    extraction (transcribe -> structure) to get label/value fields. Extraction
+    runs on a downscaled copy for speed; the full-res original is kept for editing."""
     path = state.input_ref.path
     try:
         images = rasterize(path)
-        raw_text, fields = extract_grounded(images, provider)
+        ocr_images = downscale_for_ocr(images)
+        raw_text, fields = extract_grounded(ocr_images, provider)
         _log.info("ingest_parse: %d page(s) -> %d fields via %s",
                   len(images), len(fields), provider.name)
         return {

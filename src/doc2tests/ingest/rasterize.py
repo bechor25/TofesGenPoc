@@ -33,6 +33,28 @@ def _to_png(data: bytes) -> bytes:
     return out.getvalue()
 
 
+def downscale_for_ocr(images: list[bytes], max_dim: int = 1600) -> list[bytes]:
+    """Shrink page images for the vision/OCR call so extraction stays fast on
+    high-res phone photos (fewer vision tokens). The FULL-res original is kept
+    separately for image editing. Non-decodable bytes pass through unchanged."""
+    from PIL import Image
+
+    out: list[bytes] = []
+    for data in images:
+        try:
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+            w, h = img.size
+            if max(w, h) > max_dim:
+                s = max_dim / max(w, h)
+                img = img.resize((int(w * s), int(h * s)))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            out.append(buf.getvalue())
+        except Exception:  # noqa: BLE001 - fall back to original if not an image
+            out.append(data)
+    return out
+
+
 def _pdf_to_png(path: str, dpi: int = 200) -> list[bytes]:
     import fitz  # PyMuPDF
 
