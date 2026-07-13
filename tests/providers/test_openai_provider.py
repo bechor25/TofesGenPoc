@@ -61,20 +61,32 @@ def test_complete_text_is_deterministic():
     assert rec["temperature"] == 0.0
 
 
-def test_edit_image_calls_images_edit_with_gpt_image_2():
+def _mock_edit_client():
     import base64
     from unittest.mock import MagicMock
-    png = b"\x89PNG\r\n\x1a\nORIGINAL"
     returned = base64.b64encode(b"EDITED").decode("ascii")
-
     client = MagicMock()
     client.images.edit.return_value = MagicMock(data=[MagicMock(b64_json=returned)])
+    return client
 
-    prov = OpenAIProvider(model="gpt-4o", client=client)
-    out = prov.edit_image(png, "replace values")
+
+def test_edit_image_gpt_image_2_omits_input_fidelity():
+    client = _mock_edit_client()
+    prov = OpenAIProvider(model="gpt-4o", client=client, image_model="gpt-image-2")
+    out = prov.edit_image(b"\x89PNG\r\n\x1a\nORIGINAL", "replace values")
 
     assert out == b"EDITED"
     kwargs = client.images.edit.call_args.kwargs
     assert kwargs["model"] == "gpt-image-2"
-    assert kwargs["input_fidelity"] == "high"
+    assert "input_fidelity" not in kwargs   # gpt-image-2 rejects this param
     assert kwargs["prompt"] == "replace values"
+
+
+def test_edit_image_gpt_image_1_sends_input_fidelity_high():
+    client = _mock_edit_client()
+    prov = OpenAIProvider(model="gpt-4o", client=client, image_model="gpt-image-1")
+    prov.edit_image(b"png", "replace values")
+
+    kwargs = client.images.edit.call_args.kwargs
+    assert kwargs["model"] == "gpt-image-1"
+    assert kwargs["input_fidelity"] == "high"
