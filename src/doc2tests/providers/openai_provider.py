@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 from typing import Any
 
 from doc2tests.providers.base import LLMResponse
@@ -8,6 +9,7 @@ from doc2tests.providers.base import LLMResponse
 
 class OpenAIProvider:
     name = "openai"
+    _IMAGE_MODEL = "gpt-image-2"
 
     def __init__(self, model: str, client: Any | None = None, api_key: str | None = None):
         self.model = model
@@ -53,3 +55,22 @@ class OpenAIProvider:
                 "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"},
             })
         return self._create([{"role": "user", "content": content}], json_mode)
+
+    def edit_image(
+        self, image: bytes, prompt: str, *,
+        mask: bytes | None = None, size: str = "auto", quality: str = "high",
+    ) -> bytes:
+        # gpt-image-2 + input_fidelity=high: preserve the source, change only what
+        # the prompt names. images.edit needs a named file-like for the image.
+        buf = io.BytesIO(image)
+        buf.name = "form.png"
+        kwargs: dict[str, Any] = {
+            "model": self._IMAGE_MODEL, "image": buf, "prompt": prompt,
+            "input_fidelity": "high", "size": size, "quality": quality,
+        }
+        if mask is not None:
+            mbuf = io.BytesIO(mask)
+            mbuf.name = "mask.png"
+            kwargs["mask"] = mbuf
+        resp = self._client.images.edit(**kwargs)
+        return base64.b64decode(resp.data[0].b64_json)

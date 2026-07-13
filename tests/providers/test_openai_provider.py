@@ -59,3 +59,22 @@ def test_complete_text_is_deterministic():
     p = OpenAIProvider(model="gpt-4o", client=_FakeClient(rec))
     p.complete_text("hi")
     assert rec["temperature"] == 0.0
+
+
+def test_edit_image_calls_images_edit_with_gpt_image_2():
+    import base64
+    from unittest.mock import MagicMock
+    png = b"\x89PNG\r\n\x1a\nORIGINAL"
+    returned = base64.b64encode(b"EDITED").decode("ascii")
+
+    client = MagicMock()
+    client.images.edit.return_value = MagicMock(data=[MagicMock(b64_json=returned)])
+
+    prov = OpenAIProvider(model="gpt-4o", client=client)
+    out = prov.edit_image(png, "replace values")
+
+    assert out == b"EDITED"
+    kwargs = client.images.edit.call_args.kwargs
+    assert kwargs["model"] == "gpt-image-2"
+    assert kwargs["input_fidelity"] == "high"
+    assert kwargs["prompt"] == "replace values"

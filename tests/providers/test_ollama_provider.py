@@ -40,3 +40,10 @@ def test_extract_vision_passes_base64_images():
     p = OllamaProvider(model="llava", host="http://localhost:11434", session=sess)
     p.extract_vision([b"\xff\xd8\xff"], "read")
     assert isinstance(sess.last_json["images"], list) and sess.last_json["images"]
+
+
+def test_edit_image_not_supported():
+    import pytest
+    p = OllamaProvider(model="llama3.2-vision")
+    with pytest.raises(NotImplementedError):
+        p.edit_image(b"png", "prompt")

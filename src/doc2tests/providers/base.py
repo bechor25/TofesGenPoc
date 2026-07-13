@@ -23,6 +23,11 @@ class LLMProvider(Protocol):
         self, images: list[bytes], prompt: str, *, json_mode: bool = False
     ) -> LLMResponse: ...
 
+    def edit_image(
+        self, image: bytes, prompt: str, *,
+        mask: bytes | None = None, size: str = "auto", quality: str = "high",
+    ) -> bytes: ...
+
 
 class ProviderSpec(BaseModel):
     backend: Literal["openai", "ollama"]

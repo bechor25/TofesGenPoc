@@ -45,6 +45,12 @@ class OllamaProvider:
             payload["format"] = "json"
         return self._generate(payload)
 
+    def edit_image(
+        self, image: bytes, prompt: str, *,
+        mask: bytes | None = None, size: str = "auto", quality: str = "high",
+    ) -> bytes:
+        raise NotImplementedError("image editing is OpenAI-only (gpt-image-2)")
+
     def extract_vision(
         self, images: list[bytes], prompt: str, *, json_mode: bool = False
     ) -> LLMResponse:
