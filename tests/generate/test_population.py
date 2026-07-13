@@ -1,88 +1,46 @@
-from doc2tests.contracts.enums import FieldType, RelationOp, SourceKind, TestClass
-from doc2tests.contracts.state import GraphState, InputRef, RunConfig
-from doc2tests.contracts.template import (
-    CanonicalTemplate,
-    DocSource,
-    Field,
-    Relation,
-)
+from doc2tests.contracts.enums import FieldType, SourceKind
+from doc2tests.contracts.state import DetectedValue, GraphState, InputRef, RunConfig
 from doc2tests.generate.population import generate_population
-from doc2tests.validators import is_valid_israeli_id
+from doc2tests.validators import validate
 
 
 def _state(n):
-    tmpl = CanonicalTemplate(
-        doc_type="d", source=DocSource(kind=SourceKind.image),
-        fields=[
-            Field(id="pid", label="מספר זהות", type=FieldType.israeli_id),
-            Field(id="a", label="חוזה", type=FieldType.date),
-            Field(id="b", label="כניסה", type=FieldType.date),
-        ],
-        relations=[Relation(kind="order", op=RelationOp.le, left="a", right="b")],
-    )
+    detected = [
+        DetectedValue(id="pid", label="ת.ז", value="123456782",
+                      field_type=FieldType.israeli_id, is_personal=True),
+        DetectedValue(id="nm", label="שם", value="דנה כהן",
+                      field_type=FieldType.hebrew_name, is_personal=True),
+        DetectedValue(id="city", label="עיר", value="חיפה",
+                      field_type=FieldType.free_text, is_personal=False),
+    ]
     return GraphState(
         input_ref=InputRef(path="x.jpeg", kind=SourceKind.image),
-        template=tmpl, config=RunConfig(n=n, seed=7),
+        detected=detected, config=RunConfig(n=n, seed=7),
     )
 
 
 def test_population_has_exactly_n_records():
-    out = generate_population(_state(20))
-    assert len(out["population"]) == 20
+    out = generate_population(_state(10))["population"]
+    assert len(out) == 10
 
 
-def test_population_covers_all_three_classes():
-    pop = generate_population(_state(50))["population"]
-    classes = {r.test_class for r in pop}
-    assert classes == {TestClass.equivalence, TestClass.boundary, TestClass.negative}
+def test_only_personal_fields_are_generated():
+    rec = generate_population(_state(5))["population"][0]
+    assert set(rec.values) == {"pid", "nm"}     # city (non-personal) not generated
 
 
-def test_small_n_still_covers_all_classes():
-    # even at N=5 no class is lost to rounding
-    pop = generate_population(_state(5))["population"]
-    assert len(pop) == 5
-    assert {r.test_class for r in pop} == {
-        TestClass.equivalence, TestClass.boundary, TestClass.negative}
-
-
-def test_equivalence_records_have_valid_ids():
-    pop = generate_population(_state(50))["population"]
-    for r in pop:
-        if r.test_class == TestClass.equivalence:
-            assert is_valid_israeli_id(r.values["pid"].value)
-            assert r.expected_valid is True
-
-
-def test_negative_records_are_flagged():
-    pop = generate_population(_state(50))["population"]
-    negs = [r for r in pop if r.test_class == TestClass.negative]
-    assert negs
-    for r in negs:
-        assert r.expected_valid is False
-        assert r.violates
+def test_generated_values_are_valid():
+    for rec in generate_population(_state(8))["population"]:
+        assert validate(FieldType.israeli_id, rec.values["pid"].value) is True
+        assert rec.values["pid"].valid is True
 
 
 def test_deterministic_same_seed():
-    a = generate_population(_state(10))["population"]
-    b = generate_population(_state(10))["population"]
+    a = generate_population(_state(6))["population"]
+    b = generate_population(_state(6))["population"]
     assert [r.values["pid"].value for r in a] == [r.values["pid"].value for r in b]
 
 
-def test_non_negative_records_are_fully_valid():
-    from doc2tests.validators import validate
-    pop = generate_population(_state(60))["population"]
-    for r in pop:
-        if r.test_class != TestClass.negative:
-            for v in r.values.values():
-                assert v.valid is True                       # tagged valid
-    # cross-check against the validators directly for equivalence records
-    tmpl_types = {"pid": FieldType.israeli_id, "a": FieldType.date, "b": FieldType.date}
-    for r in pop:
-        if r.test_class == TestClass.equivalence:
-            for fid, v in r.values.items():
-                assert validate(tmpl_types[fid], v.value) is True
-
-
-def test_passthrough_without_template():
+def test_passthrough_without_detected():
     st = GraphState(input_ref=InputRef(path="x.jpeg", kind=SourceKind.image))
     assert generate_population(st)["population"] == []

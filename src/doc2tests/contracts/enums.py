@@ -15,12 +15,6 @@ class FieldType(StrEnum):
     free_text = "free_text"
 
 
-class TestClass(StrEnum):
-    equivalence = "equivalence"
-    boundary = "boundary"
-    negative = "negative"
-
-
 class PiiType(StrEnum):
     IL_ID = "IL_ID"
     PERSON = "PERSON"
@@ -36,19 +30,6 @@ class SourceKind(StrEnum):
     docx = "docx"
 
 
-class RenderStrategy(StrEnum):
-    reconstruct = "reconstruct"
-    overlay = "overlay"
-
-
 class ValueKind(StrEnum):
     printed = "printed"
     handwritten = "handwritten"
-
-
-class RelationOp(StrEnum):
-    le = "<="
-    lt = "<"
-    ge = ">="
-    gt = ">"
-    eq = "=="

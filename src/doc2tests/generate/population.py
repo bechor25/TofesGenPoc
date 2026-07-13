@@ -4,115 +4,38 @@ import random
 from typing import Any
 
 from doc2tests.common.logging import get_logger
-from doc2tests.contracts.enums import FieldType, TestClass
 from doc2tests.contracts.records import Record, Value
-from doc2tests.contracts.state import GraphState
-from doc2tests.contracts.template import CanonicalTemplate, Field
-from doc2tests.generate.relations import violate_order
+from doc2tests.contracts.state import DetectedValue, GraphState
 from doc2tests.generate.strategies import strategy_for
 from doc2tests.validators import validate
 
 _log = get_logger("generate")
 
-# field types that carry a content validator we can deliberately break
-_VALIDATED = {
-    FieldType.israeli_id, FieldType.date, FieldType.gush_helka,
-    FieldType.phone, FieldType.bank_branch,
-}
 
-
-def _class_counts(n: int, mix: dict[TestClass, float]) -> list[TestClass]:
-    counts = {c: int(n * w) for c, w in mix.items()}
-    # guarantee every class is represented when there is room (don't lose negatives
-    # to rounding at small N — they are the point of a test population)
-    if n >= len(mix):
-        for c in mix:
-            counts[c] = max(1, counts[c])
-    # reconcile to exactly n by adjusting the equivalence bucket
-    counts[TestClass.equivalence] = max(0, counts[TestClass.equivalence]
-                                        + n - sum(counts.values()))
-    seq: list[TestClass] = [c for c, k in counts.items() for _ in range(k)]
-    while len(seq) < n:
-        seq.append(TestClass.equivalence)
-    return seq[:n]
-
-
-def _value_for(field: Field, cls: TestClass, rng: random.Random) -> str:
-    strat = strategy_for(field.type, rng)
-    if cls == TestClass.equivalence:
-        return strat.equivalence()
-    if cls == TestClass.boundary:
-        return strat.boundary()
-    neg = strat.negative()
-    return rng.choice(neg) if neg else strat.equivalence()
-
-
-def _valid_value_for(
-    field: Field, cls: TestClass, rng: random.Random, attempts: int = 8
-) -> str:
-    """Value that MUST pass its validator (for equivalence/boundary). Retries a few
-    times, then falls back to a guaranteed-valid equivalence value."""
+def _valid_value(field: DetectedValue, rng: random.Random, attempts: int = 8) -> str:
+    """Generate a value that passes its validator (belt-and-suspenders retry)."""
+    strat = strategy_for(field.field_type, rng)
+    v = strat.generate()
     for _ in range(attempts):
-        v = _value_for(field, cls, rng)
-        if validate(field.type, v):
+        if validate(field.field_type, v):
             return v
-    fallback = strategy_for(field.type, rng).equivalence()
-    return fallback if validate(field.type, fallback) else v
-
-
-def _validated_fields(template: CanonicalTemplate) -> list[Field]:
-    return [f for f in template.fields if f.type in _VALIDATED]
+        v = strat.generate()
+    return v
 
 
 def generate_population(state: GraphState) -> dict[str, Any]:
-    if state.template is None:
+    personal = [d for d in state.detected if d.is_personal]
+    if not personal:
         return {"population": []}
-    tmpl = state.template
     rng = random.Random(state.config.seed)
-    classes = _class_counts(state.config.n, state.config.mix)
-    rng.shuffle(classes)
     records: list[Record] = []
-    for i, cls in enumerate(classes):
-        # generate a fully valid record first, then break one rule for negatives
-        base_cls = TestClass.equivalence if cls == TestClass.negative else cls
-        values: dict[str, str] = {f.id: _valid_value_for(f, base_cls, rng)
-                                  for f in tmpl.fields}
-
-        violates: str | None = None
-        if cls == TestClass.negative:
-            violates = _inject_violation(tmpl, values, rng)
-
-        record_values = {
-            f.id: Value(field_id=f.id, value=values[f.id],
-                        valid=validate(f.type, values[f.id]))
-            for f in tmpl.fields
+    for i in range(state.config.n):
+        values = {
+            d.id: Value(field_id=d.id, value=(nv := _valid_value(d, rng)),
+                        valid=validate(d.field_type, nv))
+            for d in personal
         }
-        records.append(Record(
-            index=i, test_class=cls,
-            expected_valid=(cls != TestClass.negative),
-            violates=violates, values=record_values,
-        ))
-    n_neg = sum(1 for r in records if r.test_class == TestClass.negative)
-    _log.info("generated %d records (%d negative) for %d fields",
-              len(records), n_neg, len(tmpl.fields))
+        records.append(Record(index=i, values=values))
+    _log.info("generated %d records for %d personal field(s)",
+              len(records), len(personal))
     return {"population": records}
-
-
-def _inject_violation(
-    template: CanonicalTemplate, values: dict[str, str], rng: random.Random
-) -> str:
-    """Break exactly one rule: a validated field's value, or an order relation."""
-    validated = _validated_fields(template)
-    order_rels = [r for r in template.relations if r.kind == "order"]
-    choices: list[str] = ["field"] * len(validated) + (["relation"] if order_rels else [])
-    if not choices:
-        return "none"
-    pick = rng.choice(choices)
-    if pick == "relation":
-        values.update(violate_order(template, values))
-        return "relation.order"
-    field = rng.choice(validated)
-    neg = strategy_for(field.type, rng).negative()
-    if neg:
-        values[field.id] = rng.choice(neg)
-    return f"{field.type.value}.invalid"
