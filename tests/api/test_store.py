@@ -106,3 +106,51 @@ def test_full_run_from_store_and_edits_persist(
 def test_source_zip_404_when_empty(db_client: TestClient) -> None:
     sid = _upload_one(db_client)  # uploaded but nothing generated yet
     assert db_client.get(f"/api/sources/{sid}/zip").status_code == 404
+
+
+def _open_generate(db_client: TestClient, wait_job: Wait, sid: int) -> str:
+    op = db_client.post(f"/api/sources/{sid}/open").json()
+    wait_job(db_client, op["job_id"])
+    body = {"n": 1, "values": [
+        {"label": "שם", "value": "דנה", "field_type": "hebrew_name",
+         "is_personal": True, "slot": None}]}
+    gr = db_client.post(f"/api/docs/{op['doc_id']}/generate", json=body).json()
+    wait_job(db_client, gr["job_id"])
+    return str(op["doc_id"])
+
+
+def test_difficulty_bank_accumulates_and_filters(
+    db_client: TestClient, wait_job: Wait
+) -> None:
+    sid = _upload_one(db_client)
+    doc_id = _open_generate(db_client, wait_job, sid)
+
+    # render the same variant at difficulty 3, then 10 -> accumulates (no overwrite)
+    for level in (3, 10):
+        r = db_client.post(f"/api/docs/{doc_id}/render",
+                           json={"variant_index": 0, "difficulty": level}).json()
+        wait_job(db_client, r["job_id"])
+
+    s = db_client.get("/api/sources").json()[0]
+    assert s["n_generated"] == 2
+
+    gens = db_client.get(f"/api/sources/{sid}/generated").json()
+    assert sorted(g["difficulty"] for g in gens) == [3, 10]
+
+    d3 = db_client.get(f"/api/sources/{sid}/generated?difficulty=3").json()
+    assert len(d3) == 1 and d3[0]["difficulty"] == 3
+
+    assert db_client.get(f"/api/sources/{sid}/difficulties").json() == [3, 10]
+
+    z = db_client.get(f"/api/sources/{sid}/zip?difficulty=10")
+    assert z.status_code == 200
+    assert z.headers["content-type"] == "application/zip"
+
+
+def test_render_difficulty_is_clamped(db_client: TestClient, wait_job: Wait) -> None:
+    sid = _upload_one(db_client)
+    doc_id = _open_generate(db_client, wait_job, sid)
+    r = db_client.post(f"/api/docs/{doc_id}/render",
+                       json={"variant_index": 0, "difficulty": 99}).json()
+    wait_job(db_client, r["job_id"])
+    assert db_client.get(f"/api/sources/{sid}/difficulties").json() == [10]

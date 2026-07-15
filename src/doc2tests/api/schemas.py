@@ -77,6 +77,7 @@ class GenerateReq(BaseModel):
 
 class RenderReq(BaseModel):
     variant_index: int
+    difficulty: int = 1  # 1-10 recognition-difficulty score for the test image
 
 
 class JobRef(BaseModel):
@@ -116,6 +117,7 @@ class GeneratedDTO(BaseModel):
     id: int
     variant_index: int
     values: dict[str, Any]
+    difficulty: int = 1
 
 
 class BatchItemDTO(BaseModel):

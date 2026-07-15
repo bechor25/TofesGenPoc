@@ -75,6 +75,26 @@ def test_get_source_missing_returns_none(sqlite_db):
     assert repo.get_source(999) is None
 
 
+def test_add_generated_accumulates_with_difficulty(sqlite_db):
+    sid = repo.save_source("f.pdf", b"IMG", "")
+    a = repo.add_generated(sid, 3, {"x": "1"}, b"A")
+    b = repo.add_generated(sid, 3, {"x": "2"}, b"B")
+    c = repo.add_generated(sid, 10, {"x": "3"}, b"C")
+    assert a and b and c and a != b != c
+
+    gens = repo.list_generated(sid)
+    assert len(gens) == 3
+    assert [g.variant_index for g in gens] == [0, 1, 2]  # running counter, accumulates
+    assert {g.difficulty for g in gens} == {3, 10}
+
+    # filter by difficulty
+    assert len(repo.list_generated(sid, difficulty=3)) == 2
+    assert len(repo.list_generated(sid, difficulty=10)) == 1
+    assert repo.list_generated_images(sid, difficulty=10) == [b"C"]
+    assert len(repo.list_generated_images(sid)) == 3
+    assert repo.list_difficulties(sid) == [3, 10]
+
+
 def test_disabled_when_no_database_url(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     repo.reset()

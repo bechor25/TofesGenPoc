@@ -44,7 +44,11 @@ class GeneratedDocument(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     source_id: Mapped[int] = mapped_column(
         ForeignKey("source_document.id", ondelete="CASCADE"), index=True)
+    # a running number within the source (max+1 on insert), so the test bank ACCUMULATES
+    # — many images per source across runs/difficulties, none overwritten.
     variant_index: Mapped[int] = mapped_column()
+    # recognition-difficulty score (1-10) the image was rendered at; 1 = clean copy.
+    difficulty: Mapped[int] = mapped_column(default=1, server_default="1")
     values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     image: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

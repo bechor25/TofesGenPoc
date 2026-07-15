@@ -53,6 +53,7 @@ class GeneratedRow:
     variant_index: int
     values: dict[str, Any]
     created_at: datetime | None
+    difficulty: int = 1
 
 
 def _session_factory() -> sessionmaker[Session] | None:
@@ -79,11 +80,19 @@ def _ensure_schema(engine: Engine) -> None:
     """Lightweight forward migration for columns added after a DB was first created
     (``create_all`` never ALTERs existing tables). Idempotent — adds ``detected`` to an
     existing ``source_document`` so a live pgdata volume keeps working without a reset."""
-    cols = {c["name"] for c in inspect(engine).get_columns("source_document")}
-    if "detected" not in cols:
+    insp = inspect(engine)
+    src_cols = {c["name"] for c in insp.get_columns("source_document")}
+    if "detected" not in src_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE source_document ADD COLUMN detected JSON"))
         _log.info("db migrate: added source_document.detected")
+    gen_cols = {c["name"] for c in insp.get_columns("generated_document")}
+    if "difficulty" not in gen_cols:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE generated_document ADD COLUMN difficulty INTEGER "
+                     "DEFAULT 1"))
+        _log.info("db migrate: added generated_document.difficulty")
 
 
 def available() -> bool:
@@ -213,30 +222,75 @@ def set_extraction(
         _log.warning("set_extraction failed (%s)", exc)
 
 
-def list_generated(source_id: int) -> list[GeneratedRow]:
+def add_generated(
+    source_id: int, difficulty: int, values: dict[str, Any], image: bytes
+) -> int | None:
+    """Append ONE generated test image to the source's bank (never overwrites). The
+    variant_index is a running number (max+1) so the bank accumulates across runs and
+    difficulties. ``difficulty`` (1-10) is the test's score. Returns its id (None if off)."""
+    factory = _session_factory()
+    if factory is None:
+        return None
+    try:
+        with factory() as s, s.begin():
+            max_idx = s.scalar(
+                select(func.max(GeneratedDocument.variant_index))
+                .where(GeneratedDocument.source_id == source_id))
+            next_idx = (int(max_idx) + 1) if max_idx is not None else 0
+            row = GeneratedDocument(source_id=source_id, variant_index=next_idx,
+                                    difficulty=difficulty, values=values, image=image)
+            s.add(row)
+            s.flush()
+            return row.id
+    except Exception as exc:  # noqa: BLE001 - persistence must never break rendering
+        _log.warning("add_generated failed (%s)", exc)
+        return None
+
+
+def list_generated(
+    source_id: int, difficulty: int | None = None
+) -> list[GeneratedRow]:
     factory = _session_factory()
     if factory is None:
         return []
     with factory() as s:
-        rows = s.scalars(select(GeneratedDocument)
-                         .where(GeneratedDocument.source_id == source_id)
-                         .order_by(GeneratedDocument.variant_index)).all()
+        q = select(GeneratedDocument).where(GeneratedDocument.source_id == source_id)
+        if difficulty is not None:
+            q = q.where(GeneratedDocument.difficulty == difficulty)
+        rows = s.scalars(q.order_by(GeneratedDocument.variant_index)).all()
         return [GeneratedRow(id=r.id, variant_index=r.variant_index,
-                             values=dict(r.values or {}), created_at=r.created_at)
+                             values=dict(r.values or {}), created_at=r.created_at,
+                             difficulty=r.difficulty)
                 for r in rows]
 
 
-def list_generated_images(source_id: int) -> list[bytes]:
-    """All generated images for a source, ordered by variant — for a 'download all' zip."""
+def list_generated_images(
+    source_id: int, difficulty: int | None = None
+) -> list[bytes]:
+    """Generated images for a source (optionally one difficulty) — for a 'download all' zip."""
+    factory = _session_factory()
+    if factory is None:
+        return []
+    with factory() as s:
+        q = (select(GeneratedDocument.image)
+             .where(GeneratedDocument.source_id == source_id))
+        if difficulty is not None:
+            q = q.where(GeneratedDocument.difficulty == difficulty)
+        rows = s.scalars(q.order_by(GeneratedDocument.variant_index)).all()
+        return [bytes(r) for r in rows if r is not None]
+
+
+def list_difficulties(source_id: int) -> list[int]:
+    """Distinct difficulty levels present in a source's bank (for the filter UI)."""
     factory = _session_factory()
     if factory is None:
         return []
     with factory() as s:
         rows = s.scalars(
-            select(GeneratedDocument.image)
+            select(GeneratedDocument.difficulty)
             .where(GeneratedDocument.source_id == source_id)
-            .order_by(GeneratedDocument.variant_index)).all()
-        return [bytes(r) for r in rows if r is not None]
+            .distinct().order_by(GeneratedDocument.difficulty)).all()
+        return [int(r) for r in rows]
 
 
 def get_image(generated_id: int) -> bytes | None:

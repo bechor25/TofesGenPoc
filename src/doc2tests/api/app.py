@@ -166,17 +166,18 @@ def _run_generate(store: WorkspaceStore, doc_id: str,
     return {"n_variants": len(ws.population)}
 
 
-def _run_render(store: WorkspaceStore, doc_id: str, index: int,
+def _run_render(store: WorkspaceStore, doc_id: str, index: int, difficulty: int,
                 provider: LLMProvider) -> dict[str, Any]:
     ws = store.get(doc_id)
     doc = store.as_document_result(doc_id)
-    img = render_variant(doc, index, provider)
+    img = render_variant(doc, index, provider, difficulty=difficulty)
     ws.rendered[index] = img
     if ws.source_id is None:
         ws.source_id = repo.save_source(ws.filename, ws.page_image, ws.doc_summary)
+    # accumulate under the source (a growing test bank), tagged with the difficulty score
     if ws.source_id is not None:
-        repo.save_generated(ws.source_id, index, _variant_labels(ws, index), img)
-    return {"index": index}
+        repo.add_generated(ws.source_id, difficulty, _variant_labels(ws, index), img)
+    return {"index": index, "difficulty": difficulty}
 
 
 def _run_batch(store: WorkspaceStore, saved: list[tuple[str, str]], n: int,
@@ -288,8 +289,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="no data generated yet")
         if not 0 <= req.variant_index < len(ws.population):
             raise HTTPException(status_code=400, detail="variant index out of range")
+        level = max(1, min(10, req.difficulty))
         job_id = jobs.start(
-            lambda: _run_render(store, doc_id, req.variant_index, provider))
+            lambda: _run_render(store, doc_id, req.variant_index, level, provider))
         return JobRef(job_id=job_id, doc_id=doc_id)
 
     @app.get("/api/image/generated/{doc_id}/{index}")
@@ -391,20 +393,29 @@ def create_app() -> FastAPI:
                           has_detected=s.has_detected) for s in repo.list_sources()]
 
     @app.get("/api/sources/{source_id}/generated", response_model=list[GeneratedDTO])
-    def source_generated(source_id: int) -> list[GeneratedDTO]:
-        return [GeneratedDTO(id=g.id, variant_index=g.variant_index, values=g.values)
-                for g in repo.list_generated(source_id)]
+    def source_generated(
+        source_id: int, difficulty: int | None = None,
+    ) -> list[GeneratedDTO]:
+        return [GeneratedDTO(id=g.id, variant_index=g.variant_index, values=g.values,
+                             difficulty=g.difficulty)
+                for g in repo.list_generated(source_id, difficulty)]
+
+    @app.get("/api/sources/{source_id}/difficulties", response_model=list[int])
+    def source_difficulties(source_id: int) -> list[int]:
+        return repo.list_difficulties(source_id)
 
     @app.get("/api/sources/{source_id}/zip")
-    def source_zip(source_id: int) -> Response:
-        """Download ALL persisted images generated from this source as one zip."""
-        images = repo.list_generated_images(source_id)
+    def source_zip(source_id: int, difficulty: int | None = None) -> Response:
+        """Download the source's generated images as one zip (optionally one difficulty)."""
+        images = repo.list_generated_images(source_id, difficulty)
         if not images:
             raise HTTPException(status_code=404, detail="no generated documents")
-        data = zip_images(images, prefix=f"source_{source_id}")
+        suffix = f"_d{difficulty}" if difficulty is not None else ""
+        name = f"source_{source_id}{suffix}"
+        data = zip_images(images, prefix=name)
         return Response(
             content=data, media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="source_{source_id}.zip"'})
+            headers={"Content-Disposition": f'attachment; filename="{name}.zip"'})
 
     @app.get("/api/image/archived/{generated_id}")
     def archived_image(generated_id: int) -> Response:
