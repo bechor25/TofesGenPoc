@@ -3,6 +3,7 @@ import type {
   GeneratedDTO,
   JobRef,
   JobStatus,
+  OpenResult,
   ReviewedValue,
   SourceDTO,
 } from './types'
@@ -54,6 +55,20 @@ export const api = {
     }).then(asJson<JobRef>)
   },
 
+  uploadSources(files: File[]): Promise<{ source_ids: number[] }> {
+    const fd = new FormData()
+    files.forEach((f) => fd.append('files', f))
+    return fetch('/api/sources/upload', { method: 'POST', body: fd }).then(
+      asJson<{ source_ids: number[] }>,
+    )
+  },
+
+  openSource(sourceId: number, force = false): Promise<OpenResult> {
+    return fetch(`/api/sources/${sourceId}/open?force=${force}`, {
+      method: 'POST',
+    }).then(asJson<OpenResult>)
+  },
+
   sources(): Promise<SourceDTO[]> {
     return fetch('/api/sources').then(asJson<SourceDTO[]>)
   },
@@ -72,4 +87,5 @@ export const api = {
   generatedImageUrl: (docId: string, index: number) =>
     `/api/image/generated/${docId}/${index}`,
   archivedImageUrl: (genId: number) => `/api/image/archived/${genId}`,
+  sourceImageUrl: (sourceId: number) => `/api/image/source/${sourceId}`,
 }

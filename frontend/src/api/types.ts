@@ -65,6 +65,14 @@ export interface SourceDTO {
   filename: string
   doc_summary: string
   n_generated: number
+  has_page_image: boolean
+  has_detected: boolean
+}
+
+export interface OpenResult {
+  doc_id: string
+  job_id: string | null
+  cached: boolean
 }
 
 export interface GeneratedDTO {

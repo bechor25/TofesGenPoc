@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 
-export type View = 'single' | 'batch' | 'archive'
 type Theme = 'dark' | 'light'
 
 const THEME_KEY = 'tofes-theme'
@@ -23,16 +22,16 @@ export function initTheme(): void {
 }
 
 interface UIState {
-  view: View
   theme: Theme
-  setView: (v: View) => void
   toggleTheme: () => void
+  // sourceId -> the workspace doc_id currently open for it, so leaving a source and
+  // coming back reuses the same run (its data + renders) instead of re-opening.
+  openDocs: Record<number, string>
+  setOpenDoc: (sourceId: number, docId: string) => void
 }
 
 export const useUI = create<UIState>((set, get) => ({
-  view: 'single',
   theme: readTheme(),
-  setView: (v) => set({ view: v }),
   toggleTheme: () => {
     const theme: Theme = get().theme === 'dark' ? 'light' : 'dark'
     applyTheme(theme)
@@ -43,4 +42,7 @@ export const useUI = create<UIState>((set, get) => ({
     }
     set({ theme })
   },
+  openDocs: {},
+  setOpenDoc: (sourceId, docId) =>
+    set((s) => ({ openDocs: { ...s.openDocs, [sourceId]: docId } })),
 }))
