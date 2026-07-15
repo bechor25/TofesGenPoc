@@ -96,3 +96,13 @@ def test_full_run_from_store_and_edits_persist(
     assert op2["cached"] is True
     doc2 = db_client.get(f"/api/docs/{op2['doc_id']}").json()
     assert "שם מלא" in [d["label"] for d in doc2["detected"]]
+
+    # download-all zip of the source's persisted outputs
+    z = db_client.get(f"/api/sources/{sid}/zip")
+    assert z.status_code == 200
+    assert z.headers["content-type"] == "application/zip"
+
+
+def test_source_zip_404_when_empty(db_client: TestClient) -> None:
+    sid = _upload_one(db_client)  # uploaded but nothing generated yet
+    assert db_client.get(f"/api/sources/{sid}/zip").status_code == 404

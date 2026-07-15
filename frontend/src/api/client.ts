@@ -88,4 +88,5 @@ export const api = {
     `/api/image/generated/${docId}/${index}`,
   archivedImageUrl: (genId: number) => `/api/image/archived/${genId}`,
   sourceImageUrl: (sourceId: number) => `/api/image/source/${sourceId}`,
+  sourceZipUrl: (sourceId: number) => `/api/sources/${sourceId}/zip`,
 }

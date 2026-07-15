@@ -395,6 +395,17 @@ def create_app() -> FastAPI:
         return [GeneratedDTO(id=g.id, variant_index=g.variant_index, values=g.values)
                 for g in repo.list_generated(source_id)]
 
+    @app.get("/api/sources/{source_id}/zip")
+    def source_zip(source_id: int) -> Response:
+        """Download ALL persisted images generated from this source as one zip."""
+        images = repo.list_generated_images(source_id)
+        if not images:
+            raise HTTPException(status_code=404, detail="no generated documents")
+        data = zip_images(images, prefix=f"source_{source_id}")
+        return Response(
+            content=data, media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="source_{source_id}.zip"'})
+
     @app.get("/api/image/archived/{generated_id}")
     def archived_image(generated_id: int) -> Response:
         img = repo.get_image(generated_id)

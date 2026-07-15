@@ -226,6 +226,19 @@ def list_generated(source_id: int) -> list[GeneratedRow]:
                 for r in rows]
 
 
+def list_generated_images(source_id: int) -> list[bytes]:
+    """All generated images for a source, ordered by variant — for a 'download all' zip."""
+    factory = _session_factory()
+    if factory is None:
+        return []
+    with factory() as s:
+        rows = s.scalars(
+            select(GeneratedDocument.image)
+            .where(GeneratedDocument.source_id == source_id)
+            .order_by(GeneratedDocument.variant_index)).all()
+        return [bytes(r) for r in rows if r is not None]
+
+
 def get_image(generated_id: int) -> bytes | None:
     factory = _session_factory()
     if factory is None:
