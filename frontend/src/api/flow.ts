@@ -22,6 +22,7 @@ export function useJobFlow(docId: string | null) {
   const qc = useQueryClient()
   const [job, setJob] = useState<ActiveJob | null>(null)
   const [pending, setPending] = useState<number[]>([])
+  const [difficulty, setDifficulty] = useState(1)
   const [error, setError] = useState<string | null>(null)
 
   const refetch = () =>
@@ -38,8 +39,8 @@ export function useJobFlow(docId: string | null) {
     if (job?.kind === 'render' && pending.length > 0) {
       const [next, ...rest] = pending
       setPending(rest)
-      const r = await api.render(docId as string, next)
-      setJob({ id: r.job_id, label: `יוצר טופס ${next + 1}`, kind: 'render' })
+      const r = await api.render(docId as string, next, difficulty)
+      setJob({ id: r.job_id, label: `יוצר בדיקה (וריאציה ${next + 1}, דרגה ${difficulty})`, kind: 'render' })
     } else {
       setJob(null)
     }
@@ -51,13 +52,18 @@ export function useJobFlow(docId: string | null) {
     setJob({ id: r.job_id, label: `מייצר דאטה (${n} וריאציות)`, kind: 'generate' })
   }
 
-  const renderMany = async (indices: number[]) => {
+  const renderMany = async (indices: number[], level = 1) => {
     if (indices.length === 0) return
     setError(null)
+    setDifficulty(level)
     const [first, ...rest] = indices
     setPending(rest)
-    const r = await api.render(docId as string, first)
-    setJob({ id: r.job_id, label: `יוצר טופס ${first + 1}`, kind: 'render' })
+    const r = await api.render(docId as string, first, level)
+    setJob({
+      id: r.job_id,
+      label: `יוצר בדיקה (וריאציה ${first + 1}, דרגה ${level})`,
+      kind: 'render',
+    })
   }
 
   return { job, error, pending, onDone, generate, renderMany, setError, setJob }

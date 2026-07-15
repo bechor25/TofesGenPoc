@@ -5,11 +5,12 @@ import type { DocStateDTO } from '../api/types'
 interface Props {
   doc: DocStateDTO
   busy?: boolean
-  onRender: (indices: number[]) => void
+  onRender: (indices: number[], difficulty: number) => void
 }
 
 export function VariantsTable({ doc, busy = false, onRender }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [difficulty, setDifficulty] = useState(1)
 
   const toggle = (i: number) =>
     setSelected((s) => {
@@ -24,10 +25,11 @@ export function VariantsTable({ doc, busy = false, onRender }: Props) {
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-base font-bold">טפסים שנוצרו — סמן «יצירת טופס» להפקת תמונה</h3>
+        <h3 className="text-base font-bold">יצירת בדיקות — בחר דרגת קושי והפק תמונות</h3>
         <p className="field-label mt-1">
-          כל תמונה = קריאה יקרה ל-gpt-image-2. סמן וריאציות ואז «רנדר נבחרים», או «רנדר הכל»
-          (מתאים גם למאות קבצים).
+          כל תמונה = קריאה יקרה ל-gpt-image-2. «דרגת קושי» 1-10 קובעת עד כמה התמונה תיראה
+          מצולמת בשטח (זווית/תאורה/רקע) — 1 = העתק נקי, 10 = קשה מאוד לזיהוי. הדרגה נשמרת
+          כציון על כל בדיקה.
         </p>
       </div>
 
@@ -76,20 +78,33 @@ export function VariantsTable({ doc, busy = false, onRender }: Props) {
         </table>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2">
+          <span className="field-label">דרגת קושי</span>
+          <input
+            type="range"
+            min={1}
+            max={10}
+            value={difficulty}
+            data-testid="difficulty"
+            onChange={(e) => setDifficulty(Number(e.target.value))}
+            className="accent-accent"
+          />
+          <span className="w-6 text-center font-bold text-accent">{difficulty}</span>
+        </label>
         <button
           className="btn-primary"
           disabled={busy || selectedList.length === 0}
-          onClick={() => onRender(selectedList)}
+          onClick={() => onRender(selectedList, difficulty)}
         >
-          🖼️ רנדר נבחרים ({selectedList.length})
+          🖼️ רנדר נבחרים ({selectedList.length}) · דרגה {difficulty}
         </button>
         <button
           className="btn-ghost"
           disabled={busy || doc.variants.length === 0}
-          onClick={() => onRender(doc.variants.map((v) => v.index))}
+          onClick={() => onRender(doc.variants.map((v) => v.index), difficulty)}
         >
-          🖼️ רנדר הכל ({doc.variants.length})
+          🖼️ רנדר הכל ({doc.variants.length}) · דרגה {difficulty}
         </button>
       </div>
     </div>

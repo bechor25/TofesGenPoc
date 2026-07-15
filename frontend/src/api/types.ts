@@ -79,6 +79,7 @@ export interface GeneratedDTO {
   id: number
   variant_index: number
   values: Record<string, unknown>
+  difficulty: number
 }
 
 export interface BatchItem {

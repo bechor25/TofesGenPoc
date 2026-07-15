@@ -12,10 +12,17 @@ export const useDoc = (docId: string | null) =>
 export const useSources = () =>
   useQuery({ queryKey: ['sources'], queryFn: () => api.sources() })
 
-export const useGenerated = (sourceId: number | null) =>
+export const useGenerated = (sourceId: number | null, difficulty?: number) =>
   useQuery({
-    queryKey: ['generated', sourceId],
-    queryFn: () => api.generated(sourceId as number),
+    queryKey: ['generated', sourceId, difficulty ?? null],
+    queryFn: () => api.generated(sourceId as number, difficulty),
+    enabled: sourceId != null,
+  })
+
+export const useDifficulties = (sourceId: number | null) =>
+  useQuery({
+    queryKey: ['difficulties', sourceId],
+    queryFn: () => api.difficulties(sourceId as number),
     enabled: sourceId != null,
   })
 

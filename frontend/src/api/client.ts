@@ -47,11 +47,11 @@ export const api = {
     }).then(asJson<JobRef>)
   },
 
-  render(docId: string, variantIndex: number): Promise<JobRef> {
+  render(docId: string, variantIndex: number, difficulty = 1): Promise<JobRef> {
     return fetch(`/api/docs/${docId}/render`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ variant_index: variantIndex }),
+      body: JSON.stringify({ variant_index: variantIndex, difficulty }),
     }).then(asJson<JobRef>)
   },
 
@@ -73,8 +73,13 @@ export const api = {
     return fetch('/api/sources').then(asJson<SourceDTO[]>)
   },
 
-  generated(sourceId: number): Promise<GeneratedDTO[]> {
-    return fetch(`/api/sources/${sourceId}/generated`).then(asJson<GeneratedDTO[]>)
+  generated(sourceId: number, difficulty?: number): Promise<GeneratedDTO[]> {
+    const q = difficulty != null ? `?difficulty=${difficulty}` : ''
+    return fetch(`/api/sources/${sourceId}/generated${q}`).then(asJson<GeneratedDTO[]>)
+  },
+
+  difficulties(sourceId: number): Promise<number[]> {
+    return fetch(`/api/sources/${sourceId}/difficulties`).then(asJson<number[]>)
   },
 
   logs(n = 400): Promise<string[]> {
@@ -88,5 +93,6 @@ export const api = {
     `/api/image/generated/${docId}/${index}`,
   archivedImageUrl: (genId: number) => `/api/image/archived/${genId}`,
   sourceImageUrl: (sourceId: number) => `/api/image/source/${sourceId}`,
-  sourceZipUrl: (sourceId: number) => `/api/sources/${sourceId}/zip`,
+  sourceZipUrl: (sourceId: number, difficulty?: number) =>
+    `/api/sources/${sourceId}/zip${difficulty != null ? `?difficulty=${difficulty}` : ''}`,
 }
