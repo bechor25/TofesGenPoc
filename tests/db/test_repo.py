@@ -44,6 +44,37 @@ def test_generated_upsert_replaces_same_variant(sqlite_db):
     assert repo.list_generated(sid)[0].values["a"] == "2"
 
 
+def test_get_source_and_set_extraction(sqlite_db):
+    sid = repo.save_source("form.pdf", b"IMGBYTES", "summary")
+    full = repo.get_source(sid)
+    assert full is not None
+    assert full.page_image == b"IMGBYTES"
+    assert full.detected is None  # not extracted yet
+
+    repo.set_extraction(sid, "better summary",
+                        [{"id": "a", "label": "שם", "value": "דנה"}])
+    full2 = repo.get_source(sid)
+    assert full2 is not None
+    assert full2.detected is not None
+    assert full2.detected[0]["label"] == "שם"
+    assert full2.doc_summary == "better summary"
+
+    row = repo.list_sources()[0]
+    assert row.has_page_image is True
+    assert row.has_detected is True
+
+
+def test_list_flags_false_before_extraction(sqlite_db):
+    repo.save_source("x.pdf", b"IMG", "")
+    row = repo.list_sources()[0]
+    assert row.has_page_image is True
+    assert row.has_detected is False
+
+
+def test_get_source_missing_returns_none(sqlite_db):
+    assert repo.get_source(999) is None
+
+
 def test_disabled_when_no_database_url(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     repo.reset()

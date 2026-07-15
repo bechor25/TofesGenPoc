@@ -34,21 +34,31 @@ from doc2tests.api.schemas import (
     GenerateReq,
     JobRef,
     JobStatusDTO,
+    OpenResult,
     RenderReq,
     ReviewedValueDTO,
     SourceDTO,
+    UploadResult,
     VariantDTO,
     reviewed_to_detected,
 )
 from doc2tests.api.workspace import Workspace, WorkspaceStore
 from doc2tests.common.logging import get_logger, recent_logs
 from doc2tests.contracts.enums import SourceKind
-from doc2tests.contracts.state import GraphState, InputRef, ParseResult, RunConfig
+from doc2tests.contracts.state import (
+    DetectedValue,
+    GraphState,
+    InputRef,
+    ParseResult,
+    RunConfig,
+)
 from doc2tests.db import repo
 from doc2tests.deid.detect import detect_fields
 from doc2tests.generate.population import generate_population
+from doc2tests.ingest.grounded import extract_grounded
 from doc2tests.ingest.loaders import detect_kind
 from doc2tests.ingest.parse import ingest_parse
+from doc2tests.ingest.rasterize import rasterize
 from doc2tests.orchestrator.batch import process_batch, render_variant
 from doc2tests.providers.base import LLMProvider
 from doc2tests.ui.helpers import zip_images
@@ -116,6 +126,25 @@ def _run_extract(store: WorkspaceStore, doc_id: str, path: str,
     return {"doc_id": doc_id, "n_detected": len(ws.detected)}
 
 
+def _run_open_extract(store: WorkspaceStore, doc_id: str, source_id: int,
+                      provider: LLMProvider) -> dict[str, Any]:
+    """Extract a STORED source (page image already in the workspace), then cache the
+    result under the source so future runs skip the paid gpt-5.1 call."""
+    ws = store.get(doc_id)
+    images = [ws.page_image] if ws.page_image is not None else []
+    raw_text, summary, fields = extract_grounded(images, provider)
+    pr = ParseResult(raw_text=raw_text, doc_summary=summary, fields=fields,
+                     provider=provider.name)
+    st = GraphState(input_ref=InputRef(path=ws.filename, kind=SourceKind.image),
+                    parse_result=pr)
+    st = st.model_copy(update=detect_fields(st))
+    ws.detected = st.detected
+    ws.doc_summary = summary
+    repo.set_extraction(source_id, summary,
+                        [d.model_dump(mode="json") for d in ws.detected])
+    return {"n_detected": len(ws.detected)}
+
+
 def _run_generate(store: WorkspaceStore, doc_id: str,
                   values: list[ReviewedValueDTO], n: int,
                   provider: LLMProvider) -> dict[str, Any]:
@@ -128,7 +157,12 @@ def _run_generate(store: WorkspaceStore, doc_id: str,
         parse_result=ParseResult(doc_summary=ws.doc_summary))
     st = st.model_copy(update=generate_population(st, provider))
     ws.population = st.population
-    ws.source_id = repo.save_source(ws.filename, ws.page_image, ws.doc_summary)
+    if ws.source_id is None:
+        ws.source_id = repo.save_source(ws.filename, ws.page_image, ws.doc_summary)
+    # cache the REVIEWED values under the source, so the next run reuses the user's edits
+    if ws.source_id is not None:
+        repo.set_extraction(ws.source_id, ws.doc_summary,
+                            [d.model_dump(mode="json") for d in ws.detected])
     return {"n_variants": len(ws.population)}
 
 
@@ -294,10 +328,67 @@ def create_app() -> FastAPI:
         job_id = jobs.start(lambda: _run_batch(store, saved, n, workers, provider))
         return JobRef(job_id=job_id)
 
+    @app.post("/api/sources/upload", response_model=UploadResult)
+    async def upload_sources(
+        files: list[UploadFile] = File(...),
+        store: WorkspaceStore = Depends(get_store),
+    ) -> UploadResult:
+        """Add document(s) to the store: rasterize + persist each as a source NOW (no
+        extraction — that happens lazily on the first run). Returns the source ids."""
+        if not repo.available():
+            raise HTTPException(status_code=503,
+                                detail="persistence off — set DATABASE_URL")
+        ids: list[int] = []
+        for f in files:
+            name = f.filename or "upload"
+            path = _save_temp(name, await f.read())
+            try:
+                images = rasterize(path)
+            except Exception as exc:  # noqa: BLE001 - bad file -> 400, not a 500
+                raise HTTPException(status_code=400, detail=f"{name}: {exc}") from None
+            page = images[0] if images else None
+            sid = repo.save_source(name, page, "")
+            if sid is not None:
+                ids.append(sid)
+        return UploadResult(source_ids=ids)
+
+    @app.get("/api/image/source/{source_id}")
+    def source_image(source_id: int) -> Response:
+        full = repo.get_source(source_id)
+        if full is None or full.page_image is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return Response(content=full.page_image, media_type="image/png")
+
+    @app.post("/api/sources/{source_id}/open", response_model=OpenResult)
+    def open_source(
+        source_id: int, force: bool = False,
+        store: WorkspaceStore = Depends(get_store),
+        jobs: JobManager = Depends(get_jobs),
+        provider: LLMProvider = Depends(get_extract_provider),
+    ) -> OpenResult:
+        """Open a stored source to run the flow. Builds a workspace from its page image.
+        If a cached extraction exists (and not force), it's reused -> ready for review
+        immediately, no gpt-5.1 call. Otherwise an extraction job starts."""
+        full = repo.get_source(source_id)
+        if full is None:
+            raise HTTPException(status_code=404, detail="source not found")
+        doc_id = store.new(full.filename)
+        ws = store.get(doc_id)
+        ws.page_image = full.page_image
+        ws.doc_summary = full.doc_summary
+        ws.source_id = source_id
+        if full.detected and not force:
+            ws.detected = [DetectedValue(**d) for d in full.detected]
+            return OpenResult(doc_id=doc_id, job_id=None, cached=True)
+        job_id = jobs.start(
+            lambda: _run_open_extract(store, doc_id, source_id, provider))
+        return OpenResult(doc_id=doc_id, job_id=job_id, cached=False)
+
     @app.get("/api/sources", response_model=list[SourceDTO])
     def sources() -> list[SourceDTO]:
         return [SourceDTO(id=s.id, filename=s.filename, doc_summary=s.doc_summary,
-                          n_generated=s.n_generated) for s in repo.list_sources()]
+                          n_generated=s.n_generated, has_page_image=s.has_page_image,
+                          has_detected=s.has_detected) for s in repo.list_sources()]
 
     @app.get("/api/sources/{source_id}/generated", response_model=list[GeneratedDTO])
     def source_generated(source_id: int) -> list[GeneratedDTO]:

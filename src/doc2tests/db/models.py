@@ -25,6 +25,9 @@ class SourceDocument(Base):
     content_hash: Mapped[str] = mapped_column(Text, unique=True, index=True)
     doc_summary: Mapped[str] = mapped_column(Text, default="")
     page_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # cached extraction (list of DetectedValue dicts) so re-running the flow on a stored
+    # source reuses it instead of paying for gpt-5.1 again. None = not yet extracted.
+    detected: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     generated: Mapped[list[GeneratedDocument]] = relationship(

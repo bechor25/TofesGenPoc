@@ -96,6 +96,20 @@ class SourceDTO(BaseModel):
     filename: str
     doc_summary: str
     n_generated: int
+    has_page_image: bool = False
+    has_detected: bool = False
+
+
+class OpenResult(BaseModel):
+    """Result of opening a stored source to run the flow. ``cached`` = the extraction was
+    reused (no job); otherwise poll ``job_id`` for the extraction job."""
+    doc_id: str
+    job_id: str | None = None
+    cached: bool = False
+
+
+class UploadResult(BaseModel):
+    source_ids: list[int]
 
 
 class GeneratedDTO(BaseModel):
