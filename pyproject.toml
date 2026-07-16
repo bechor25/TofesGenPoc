@@ -11,12 +11,14 @@ dependencies = [
     "requests>=2.32",
     "faker>=40.28.1",
     "langgraph>=1.2.8",
-    "streamlit>=1.59.1",
     "pymupdf>=1.28.0",
     "pillow>=12.3.0",
     "python-docx>=1.2.0",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
+    "fastapi>=0.139.0",
+    "uvicorn[standard]>=0.51.0",
+    "python-multipart>=0.0.32",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,10 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's Depends()/File()/Form() in argument defaults are the framework idiom.
+"src/doc2tests/api/app.py" = ["B008"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -60,4 +66,9 @@ filterwarnings = [
     "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
     "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
     "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
 ]

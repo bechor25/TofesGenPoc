@@ -25,6 +25,9 @@ class SourceDocument(Base):
     content_hash: Mapped[str] = mapped_column(Text, unique=True, index=True)
     doc_summary: Mapped[str] = mapped_column(Text, default="")
     page_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # cached extraction (list of DetectedValue dicts) so re-running the flow on a stored
+    # source reuses it instead of paying for gpt-5.1 again. None = not yet extracted.
+    detected: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     generated: Mapped[list[GeneratedDocument]] = relationship(
@@ -41,7 +44,11 @@ class GeneratedDocument(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     source_id: Mapped[int] = mapped_column(
         ForeignKey("source_document.id", ondelete="CASCADE"), index=True)
+    # a running number within the source (max+1 on insert), so the test bank ACCUMULATES
+    # — many images per source across runs/difficulties, none overwritten.
     variant_index: Mapped[int] = mapped_column()
+    # recognition-difficulty score (1-10) the image was rendered at; 1 = clean copy.
+    difficulty: Mapped[int] = mapped_column(default=1, server_default="1")
     values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     image: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

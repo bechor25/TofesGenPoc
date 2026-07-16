@@ -30,3 +30,16 @@ def test_edit_form_image_calls_provider_edit():
     args = prov.edit_image.call_args
     assert args.args[0] == b"ORIGINAL"
     assert "204685624" in args.args[1]
+
+
+def test_difficulty_1_is_a_clean_copy_no_photo_clause():
+    reps = [Replacement(old="a", new="b")]
+    assert "REAL PHOTOGRAPH" not in build_edit_prompt(reps, difficulty=1)
+
+
+def test_higher_difficulty_injects_photo_and_level_into_prompt():
+    reps = [Replacement(old="a", new="b")]
+    prompt = build_edit_prompt(reps, difficulty=7, seed=2)
+    assert "REAL PHOTOGRAPH" in prompt
+    assert "Difficulty level 7 of 10" in prompt
+    assert '"a" → "b"' in prompt  # values still replaced under degradation

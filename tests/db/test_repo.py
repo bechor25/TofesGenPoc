@@ -44,6 +44,57 @@ def test_generated_upsert_replaces_same_variant(sqlite_db):
     assert repo.list_generated(sid)[0].values["a"] == "2"
 
 
+def test_get_source_and_set_extraction(sqlite_db):
+    sid = repo.save_source("form.pdf", b"IMGBYTES", "summary")
+    full = repo.get_source(sid)
+    assert full is not None
+    assert full.page_image == b"IMGBYTES"
+    assert full.detected is None  # not extracted yet
+
+    repo.set_extraction(sid, "better summary",
+                        [{"id": "a", "label": "שם", "value": "דנה"}])
+    full2 = repo.get_source(sid)
+    assert full2 is not None
+    assert full2.detected is not None
+    assert full2.detected[0]["label"] == "שם"
+    assert full2.doc_summary == "better summary"
+
+    row = repo.list_sources()[0]
+    assert row.has_page_image is True
+    assert row.has_detected is True
+
+
+def test_list_flags_false_before_extraction(sqlite_db):
+    repo.save_source("x.pdf", b"IMG", "")
+    row = repo.list_sources()[0]
+    assert row.has_page_image is True
+    assert row.has_detected is False
+
+
+def test_get_source_missing_returns_none(sqlite_db):
+    assert repo.get_source(999) is None
+
+
+def test_add_generated_accumulates_with_difficulty(sqlite_db):
+    sid = repo.save_source("f.pdf", b"IMG", "")
+    a = repo.add_generated(sid, 3, {"x": "1"}, b"A")
+    b = repo.add_generated(sid, 3, {"x": "2"}, b"B")
+    c = repo.add_generated(sid, 10, {"x": "3"}, b"C")
+    assert a and b and c and a != b != c
+
+    gens = repo.list_generated(sid)
+    assert len(gens) == 3
+    assert [g.variant_index for g in gens] == [0, 1, 2]  # running counter, accumulates
+    assert {g.difficulty for g in gens} == {3, 10}
+
+    # filter by difficulty
+    assert len(repo.list_generated(sid, difficulty=3)) == 2
+    assert len(repo.list_generated(sid, difficulty=10)) == 1
+    assert repo.list_generated_images(sid, difficulty=10) == [b"C"]
+    assert len(repo.list_generated_images(sid)) == 3
+    assert repo.list_difficulties(sid) == [3, 10]
+
+
 def test_disabled_when_no_database_url(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     repo.reset()

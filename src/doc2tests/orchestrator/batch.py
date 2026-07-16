@@ -72,14 +72,18 @@ def process_batch(
 
 
 def render_variant(
-    doc: DocumentResult, record_index: int, provider: LLMProvider, doc_hint: str = "",
+    doc: DocumentResult, record_index: int, provider: LLMProvider,
+    doc_hint: str = "", difficulty: int = 1,
 ) -> bytes:
     """The metered, EXPENSIVE step: edit the original image for one variant. Called
-    explicitly by the caller so cost stays under control at scale."""
+    explicitly by the caller so cost stays under control at scale. ``difficulty`` (1-10)
+    renders the result as a progressively harder-to-read real-world photo (level 1 =
+    clean copy) — that number is both the prompt instruction and the test's score."""
     if doc.page_image is None:
         raise ValueError(f"no page image to edit for {doc.path}")
     rec = doc.population[record_index]
     personal = [d for d in doc.detected if d.is_personal]
     reps = [Replacement(old=d.value, new=rec.values[d.id].value)
             for d in personal if d.id in rec.values]
-    return edit_form_image(doc.page_image, reps, provider, doc_hint)
+    return edit_form_image(doc.page_image, reps, provider, doc_hint,
+                           difficulty=difficulty, seed=record_index)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from doc2tests.common.logging import get_logger
+from doc2tests.imagegen.conditions import photo_condition_clause
 from doc2tests.providers.base import LLMProvider
 
 _log = get_logger("imagegen")
@@ -26,7 +27,10 @@ class Replacement:
     new: str
 
 
-def build_edit_prompt(replacements: list[Replacement], doc_hint: str = "") -> str:
+def build_edit_prompt(
+    replacements: list[Replacement], doc_hint: str = "",
+    difficulty: int = 1, seed: int = 0,
+) -> str:
     lines = [_INSTRUCTION]
     if doc_hint:
         lines.append(f"Document type hint: {doc_hint}.")
@@ -34,16 +38,20 @@ def build_edit_prompt(replacements: list[Replacement], doc_hint: str = "") -> st
     if pairs:
         lines.append("Replacements (OLD → NEW):")
         lines += [f'- "{r.old}" → "{r.new}"' for r in pairs]
+    clause = photo_condition_clause(difficulty, seed)  # '' at level 1 -> clean copy
+    if clause:
+        lines.append(clause)
     return "\n".join(lines)
 
 
 def edit_form_image(
     original_png: bytes, replacements: list[Replacement], provider: LLMProvider,
-    doc_hint: str = "",
+    doc_hint: str = "", difficulty: int = 1, seed: int = 0,
 ) -> bytes:
-    prompt = build_edit_prompt(replacements, doc_hint)
+    prompt = build_edit_prompt(replacements, doc_hint, difficulty, seed)
     pairs = [r for r in replacements if r.old.strip() and r.old != r.new]
-    _log.info("editing image: %d value replacement(s)", len(pairs))
+    _log.info("editing image: %d value replacement(s), difficulty=%d",
+              len(pairs), difficulty)
     for r in pairs:
         _log.info("  edit | %r -> %r", r.old, r.new)
     return provider.edit_image(original_png, prompt)
